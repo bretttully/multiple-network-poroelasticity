@@ -31,7 +31,8 @@ public:
     // ************ public methods ************** //
     FourCompartmentPoro ();
     ~FourCompartmentPoro() {}
-    void Initialize (
+
+    void initialize (
         int J,
         double initialTime,
         double finalTime,
@@ -40,32 +41,37 @@ public:
         bool debugPrint,
         std::string baseName
         );
-    void SetArteriolConstants(
+
+    void setArteriolConstants(
         double A_a,
         double B_a,
         double k_a,
         double mu_a
         );
-    void SetCapillaryConstants(
+
+    void setCapillaryConstants(
         double A_c,
         double B_c,
         double k_c,
         double mu_c,
         double k_ce
         );
-    void SetVenousConstants(
+
+    void setVenousConstants(
         double A_v,
         double B_v,
         double k_v,
         double mu_v
         );
-    void SetTransferConstants(
+
+    void setTransferConstants(
         double gamma_ac,
         double gamma_ce,
         double gamma_cv,
         double gamma_ev
         );
-    void Solve ();
+
+    void solve();
 
 private:
     // ************ private contants ************* //
@@ -140,32 +146,33 @@ private:
     int N;
 
     // solution properties
+    static const int numElements = 5; // U, Pa, Pc, Pe, Pv
     Eigen::VectorXd x;
     Eigen::VectorXd b;
     Eigen::MatrixXd A;
 
     // output file constants
     std::string baseName;
-    std::string transientFileName;
     std::string wallFileName;
+    std::string transientFileName;
     bool saveTrans;
 
     bool mDebugPrint;
 
     // ************ private methods ************** //
-    void setMaterialConstants ();
-    void setGridConstants (
+    void setMaterialConstants();
+    void setGridConstants(
         int m
         );
-    void setTimeConstants (
+    void setTimeConstants(
         double initialTime,
         double finalTime,
         double dtSecs
         );
-    void initializeSystem ();
-    void createTransientDataFile ();
-    void buildSystem ();
-    void saveWallData ();
-    void saveTransientData ();
+    void initializeSystem();
+    void buildSystem();
+    void saveWallData() const;
+    void createTransientDataFile() const;
+    void saveTransientData() const;
 };
 }

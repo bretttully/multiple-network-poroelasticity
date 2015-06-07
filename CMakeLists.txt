@@ -41,7 +41,8 @@ endmacro()
 # default build type
 if (NOT CMAKE_BUILD_TYPE)
     message(STATUS "No build type selected, default to RelWithDebInfo")
-    set(CMAKE_BUILD_TYPE "RelWithDebInfo")
+    set(CMAKE_BUILD_TYPE "Release")
+#    set(CMAKE_BUILD_TYPE "RelWithDebInfo")
 endif()
 
 SET (CMAKE_CXX_FLAGS                "-Wall -std=c++11")

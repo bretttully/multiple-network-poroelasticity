@@ -62,12 +62,11 @@ setGridConstants(
     int m
     )
 {
-    int i;
     // grid properties
     J       = m;        // number of grid points
     dr      = L / (J - 1);  // grid spacing
     r       = Eigen::VectorXd(J); // radius vector
-    for ( i = 0; i < J; i++ ) {
+    for (int i = 0; i < J; ++i) {
         r[i] = rV + i * dr;
     }
 }
@@ -91,31 +90,20 @@ void
 FourCompartmentPoro::
 initializeSystem()
 {
-    int i;
-    int j;
-    int n = 5;
-    // solution properties
-    x       = Eigen::VectorXd(n * J);       // LHS (solution) vector
-    b       = Eigen::VectorXd(n * J);       // RHS vector
-    for ( i = 0; i < n * J; i++ ) {
-        x[i]      = 0.0;
-        b[i]      = 0.0;
-    }
-    A       = Eigen::MatrixXd(n * J,n * J);   // Derivative matrix
-    for ( i = 0; i < n * J; i++ ) {
-        for ( j = 0; j < n * J; j++ ) {
-            A(i, j) = 0.0;
-        }
-    }
+    x = Eigen::VectorXd(numElements * J);                 // LHS (solution) vector
+    b = Eigen::VectorXd(numElements * J);                 // RHS vector
+    A = Eigen::MatrixXd(numElements * J,numElements * J); // Derivative matrix
+    x.setZero();
+    b.setZero();
+    A.setZero();
 }
 
 void
 FourCompartmentPoro::
-createTransientDataFile ()
+createTransientDataFile() const
 {
-    transientFileName = baseName + "_transient.dat";
     std::ofstream fs;
-    fs.open( transientFileName.c_str(), std::fstream::out );
+    fs.open(transientFileName.c_str(), std::fstream::out );
     fs << "T, U, Pa, Pc, Pe, Pv" << std::endl;
     fs.close();
 }
@@ -125,9 +113,8 @@ FourCompartmentPoro::
 buildSystem ()
 {
     // == build the A matrix ==== //
-    int i;
     double sDot_ac, sDot_ce, sDot_cv, sDot_ev;
-    for ( i = 1; i < J - 1; i++ ) {
+    for (int i = 1; i < J - 1; ++i) {
         // set transfer fluxes
         sDot_ac = gamma_ac * abs(x[i + J] - x[i + 2 * J]);
         sDot_ce = gamma_ce * abs(x[i + 2 * J] - x[i + 3 * J]);
@@ -252,9 +239,8 @@ buildSystem ()
 
 void
 FourCompartmentPoro::
-saveWallData ()
+saveWallData() const
 {
-    wallFileName = baseName + "_wall.dat";
     std::ofstream wallFile( wallFileName.c_str());
     wallFile.precision(6);
     wallFile.setf(std::ios::scientific, std::ios::floatfield);
@@ -273,7 +259,7 @@ saveWallData ()
 
 void
 FourCompartmentPoro::
-saveTransientData ()
+saveTransientData() const
 {
     std::ofstream fs;
     fs.open( transientFileName.c_str(), std::fstream::app );
@@ -290,7 +276,7 @@ saveTransientData ()
 
 void
 FourCompartmentPoro::
-Initialize (
+initialize(
     int m,
     double initialTime,
     double finalTime,
@@ -308,6 +294,8 @@ Initialize (
     if ( std::string::npos != endpos ) {
         baseName = baseName.substr( 0, endpos + 1 );
     }
+    transientFileName = baseName + "_transient.dat";
+    wallFileName = baseName + "_wall.dat";
 
     setMaterialConstants();
     setGridConstants(m);
@@ -320,7 +308,7 @@ Initialize (
 
 void
 FourCompartmentPoro::
-SetArteriolConstants(
+setArteriolConstants(
     double Aa,
     double Ba,
     double kA,
@@ -337,7 +325,7 @@ SetArteriolConstants(
 
 void
 FourCompartmentPoro::
-SetCapillaryConstants(
+setCapillaryConstants(
     double Ac,
     double Bc,
     double kC,
@@ -356,7 +344,7 @@ SetCapillaryConstants(
 
 void
 FourCompartmentPoro::
-SetVenousConstants(
+setVenousConstants(
     double Av,
     double Bv,
     double kV,
@@ -373,7 +361,7 @@ SetVenousConstants(
 
 void
 FourCompartmentPoro::
-SetTransferConstants(
+setTransferConstants(
     double gammaAC,
     double gammaCE,
     double gammaCV,
@@ -388,14 +376,15 @@ SetTransferConstants(
 
 void
 FourCompartmentPoro::
-Solve ()
+solve()
 {
     bool saveToFile = true;
     for (int i = 0; i < N; ++i) {
         t = t0 + i * dt;
         buildSystem();
 
-        x = A.lu().solve(b);
+//        x = A.lu().solve(b);
+        x = A.householderQr().solve(b);
 
         if (mDebugPrint) {
             double relative_error = (A*x - b).norm() / b.norm(); // norm() is L2 norm
