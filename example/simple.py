@@ -19,45 +19,52 @@ limitations under the License.
 """
 import subprocess
 import os
-from mpet import FourCompartmentPoro
+from mpet import FourCompartmentPoro as CPPSolver
+from mpet.four_compartment import FourCompartmentMPET as PythonSolver
+from mpet import FourCompartmentPoroOptions
 from mpet import profiling
-from mpet import io
 
 
-def main(run_profiling=False):
+def run(run_pure_python=False, run_profiling=False):
     grid_spacing = 81
     secs_in_day = 86400
     initial_time = 0.0
     final_time = 1.0 * secs_in_day
     dt = 100.0
     write_transient = False
+    write_wall = True
     base_name = "example"
-    debug_print = False
+    if run_pure_python:
+        base_name += "_python"
+    else:
+        base_name += "_cpp"
+    debug_print = True
 
+    opts = FourCompartmentPoroOptions()
     # arteriol constants
-    alpha_a = 1.0
-    beta_a = 0.99
-    k_a = 1e-10
-    mu_a = 8.9e-4 * 3.  # about 3 times that of water
+    opts.alpha_a = 1.0
+    opts.beta_a = 0.99
+    opts.kappa_a = 1e-10
+    opts.mu_a = 8.9e-4 * 3.  # about 3 times that of water
 
     # capillary constants
-    alpha_c = 0.8
-    beta_c = 0.99
-    k_c = 1e-10
-    mu_c = 8.9e-4 * 3.  # about 3 times that of water
-    k_ce = 6e-4
+    opts.alpha_c = 0.8
+    opts.beta_c = 0.99
+    opts.kappa_c = 1e-10
+    opts.mu_c = 8.9e-4 * 3.  # about 3 times that of water
+    opts.k_ce = 6e-4
 
     # venous constants
-    alpha_v = 1.0
-    beta_v = 0.99
-    k_v = 1e-10
-    mu_v = 8.9e-4 * 3.  # about 3 times that of water
+    opts.alpha_v = 1.0
+    opts.beta_v = 0.99
+    opts.kappa_v = 1e-10
+    opts.mu_v = 8.9e-4 * 3.  # about 3 times that of water
 
     # transfer coefficients
-    gamma_ac = 1.5e-19
-    gamma_ce = 1.0e-22
-    gamma_cv = 1.5e-19
-    gamma_ev = 1.0e-13
+    opts.gamma_ac = 1.5e-19
+    opts.gamma_ce = 1.0e-22
+    opts.gamma_cv = 1.5e-19
+    opts.gamma_ev = 1.0e-13
 
     prof_prefix = os.path.join(os.getcwd(), base_name)
     if run_profiling:
@@ -65,12 +72,12 @@ def main(run_profiling=False):
                         profile_memory=False,
                         cpu_profile_freq=1000)
 
-    s = FourCompartmentPoro()
-    s.initialize(grid_spacing, initial_time, final_time, dt, write_transient, debug_print, base_name)
-    s.setArteriolConstants(alpha_a, beta_a, k_a, mu_a)
-    s.setCapillaryConstants(alpha_c, beta_c, k_c, mu_c, k_ce)
-    s.setVenousConstants(alpha_v, beta_v, k_v, mu_v)
-    s.setTransferConstants(gamma_ac, gamma_ce, gamma_cv, gamma_ev)
+    if run_pure_python:
+        s = PythonSolver(grid_spacing, initial_time, final_time, dt,
+                         write_transient, write_wall, debug_print, base_name, opts)
+    else:
+        s = CPPSolver(grid_spacing, initial_time, final_time, dt,
+                      write_transient, write_wall, debug_print, base_name, opts)
     s.solve()
 
     if run_profiling:
@@ -105,4 +112,18 @@ def main(run_profiling=False):
 
 
 if __name__ == "__main__":
-    main()
+    # import timeit
+    # print "Pure Python:"
+    # print timeit.timeit("from simple import run; run(run_pure_python=True)", number=10)
+    # print "C++:"
+    # print timeit.timeit("from simple import run; run(run_pure_python=False)", number=10)
+
+    run(run_pure_python=True)
+    run(run_pure_python=False)
+    import matplotlib.pyplot as plt
+    import numpy as np
+    p = np.genfromtxt("example_python_wall.dat", skiprows=1, delimiter=", ")
+    c = np.genfromtxt("example_cpp_wall.dat", skiprows=1, delimiter=", ")
+    plt.plot(p[:, 0], p[:, 1], 'b-')
+    plt.plot(c[:, 0], c[:, 1], 'r-')
+    plt.show()

@@ -25,18 +25,37 @@
 BOOST_PYTHON_MODULE(libpympet) {
     using namespace boost::python;
 
-    class_<mpet::FourCompartmentPoro>("FourCompartmentPoro", init<>())
-//        .def(self_ns::str(self_ns::self))
-//        .def(self_ns::repr(self_ns::self))
-    .def("initialize", &mpet::FourCompartmentPoro::initialize)
-    .def("setArteriolConstants",
-         &mpet::FourCompartmentPoro::setArteriolConstants)
-    .def("setCapillaryConstants",
-         &mpet::FourCompartmentPoro::setCapillaryConstants)
-    .def("setVenousConstants", &mpet::FourCompartmentPoro::setVenousConstants)
-    .def("setTransferConstants",
-         &mpet::FourCompartmentPoro::setTransferConstants)
-    .def("solve", &mpet::FourCompartmentPoro::solve)
+    class_<mpet::FourCompartmentPoroOptions>("FourCompartmentPoroOptions", init<>())
+        .def(self_ns::str(self_ns::self))
+        .def(self_ns::repr(self_ns::self))
+        // arteriol constants
+        .def_readwrite("alpha_a", &mpet::FourCompartmentPoroOptions::Aa)
+        .def_readwrite("beta_a", &mpet::FourCompartmentPoroOptions::Ba)
+        .def_readwrite("kappa_a", &mpet::FourCompartmentPoroOptions::kA)
+        .def_readwrite("mu_a", &mpet::FourCompartmentPoroOptions::muA)
+        // capillary constants
+        .def_readwrite("alpha_c", &mpet::FourCompartmentPoroOptions::Ac)
+        .def_readwrite("beta_c", &mpet::FourCompartmentPoroOptions::Bc)
+        .def_readwrite("kappa_c", &mpet::FourCompartmentPoroOptions::kC)
+        .def_readwrite("mu_c", &mpet::FourCompartmentPoroOptions::muC)
+        .def_readwrite("k_ce", &mpet::FourCompartmentPoroOptions::kCE)
+        // venous constants
+        .def_readwrite("alpha_v", &mpet::FourCompartmentPoroOptions::Av)
+        .def_readwrite("beta_v", &mpet::FourCompartmentPoroOptions::Bv)
+        .def_readwrite("kappa_v", &mpet::FourCompartmentPoroOptions::kV)
+        .def_readwrite("mu_v", &mpet::FourCompartmentPoroOptions::muV)
+        // transfer constants
+        .def_readwrite("gamma_ac", &mpet::FourCompartmentPoroOptions::gammaAC)
+        .def_readwrite("gamma_ce", &mpet::FourCompartmentPoroOptions::gammaCE)
+        .def_readwrite("gamma_cv", &mpet::FourCompartmentPoroOptions::gammaCV)
+        .def_readwrite("gamma_ev", &mpet::FourCompartmentPoroOptions::gammaEV)
 //        .def_pickle(ns::controllerResultPickleSuite())
-    ;
+        ;
+
+    class_<mpet::FourCompartmentPoro>("FourCompartmentPoro",
+                                      init<int, double, double, double,
+                                           bool, bool, bool, std::string,
+                                           const mpet::FourCompartmentPoroOptions&>())
+        .def("solve", &mpet::FourCompartmentPoro::solve)
+        ;
 }

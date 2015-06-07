@@ -25,51 +25,83 @@
 
 namespace mpet
 {
+class FourCompartmentPoroOptions {
+public:
+    // arteriol constants
+    double Aa;
+    double Ba;
+    double kA;
+    double muA;
+    // capillary constants
+    double Ac;
+    double Bc;
+    double kC;
+    double muC;
+    double kCE;
+    // venous constants
+    double Av;
+    double Bv;
+    double kV;
+    double muV;
+    // transfer constants
+    double gammaAC;
+    double gammaCE;
+    double gammaCV;
+    double gammaEV;
+
+    /**
+     * Write the object to a stream
+     *
+     * @param os The output stream
+     * @param rhs The vector to be written
+     * @return
+     */
+    friend std::ostream& operator <<(
+        std::ostream& os,
+        const FourCompartmentPoroOptions& rhs
+        )
+    {
+        return os << "FourCompartmentPoroOptions"
+                  << std::endl << " Arteriol constants:"
+                  << std::endl << "  - alpha: " << rhs.Aa
+                  << std::endl << "  -  beta: " << rhs.Ba
+                  << std::endl << "  - kappa: " << rhs.kA
+                  << std::endl << "  -    mu: " << rhs.muA
+                  << std::endl << " Capillary constants:"
+                  << std::endl << "  - alpha: " << rhs.Ac
+                  << std::endl << "  -  beta: " << rhs.Bc
+                  << std::endl << "  - kappa: " << rhs.kC
+                  << std::endl << "  -    mu: " << rhs.muC
+                  << std::endl << "  -  k_ce: " << rhs.kCE
+                  << std::endl << " Venous constants:"
+                  << std::endl << "  - alpha: " << rhs.Av
+                  << std::endl << "  -  beta: " << rhs.Bv
+                  << std::endl << "  - kappa: " << rhs.kV
+                  << std::endl << "  -    mu: " << rhs.muV
+                  << std::endl << " Compartment transfer constants:"
+                  << std::endl << "  - gamma_ac: " << rhs.gammaAC
+                  << std::endl << "  - gamma_ce: " << rhs.gammaCE
+                  << std::endl << "  - gamma_cv: " << rhs.gammaCV
+                  << std::endl << "  - gamma_ev: " << rhs.gammaEV;
+    }
+};
+
 class FourCompartmentPoro
 {
 public:
     // ************ public methods ************** //
-    FourCompartmentPoro ();
+    FourCompartmentPoro (
+            int grid_size,
+            double initial_time,
+            double final_time,
+            double dtSecs,
+            bool saveTransientToFile,
+            bool saveWallToFile,
+            bool debugPrint,
+            std::string bName,
+            const FourCompartmentPoroOptions& opts);
+
     ~FourCompartmentPoro() {}
-
-    void initialize (
-        int J,
-        double initialTime,
-        double finalTime,
-        double dtSecs,
-        bool saveTrans,
-        bool debugPrint,
-        std::string baseName
-        );
-
-    void setArteriolConstants(
-        double A_a,
-        double B_a,
-        double k_a,
-        double mu_a
-        );
-
-    void setCapillaryConstants(
-        double A_c,
-        double B_c,
-        double k_c,
-        double mu_c,
-        double k_ce
-        );
-
-    void setVenousConstants(
-        double A_v,
-        double B_v,
-        double k_v,
-        double mu_v
-        );
-
-    void setTransferConstants(
-        double gamma_ac,
-        double gamma_ce,
-        double gamma_cv,
-        double gamma_ev
-        );
 
     void solve();
 
@@ -155,7 +187,8 @@ private:
     std::string baseName;
     std::string wallFileName;
     std::string transientFileName;
-    bool saveTrans;
+    bool mSaveTransientToFile;
+    bool mSaveWallToFile;
 
     bool mDebugPrint;
 

@@ -1,19 +1,31 @@
+"""!
+@file
+@date 07 Jun 2015
+
+@license
+Copyright 2015 Brett Tully
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+"""
+import os
 import numpy as np
+from mpet import FourCompartmentPoroOptions
 
 
 class FourCompartmentMPET(object):
-    def __init__(self,
-                 # general constants
-                 final_time, dt, grid_spacing, name,
-                 # arteriol constants
-                 A_a, B_a, k_a, mu_a,
-                 # capillary constants
-                 A_c, B_c, k_c, mu_c, k_ce,
-                 # venus constants
-                 A_v, B_v, k_v, mu_v,
-                 # transfer constants
-                 gamma_ac, gamma_ce, gamma_cv, gamma_ev,
-                 blocked=False):
+    def __init__(self, grid_spacing, initial_time, final_time, dt,
+                 write_transient, write_wall, debug_print, base_name, opts, blocked=False):
+        assert isinstance(opts, FourCompartmentPoroOptions)
 
         # geometry constants
         self.rV = 30.0e-3  # m
@@ -28,21 +40,21 @@ class FourCompartmentMPET(object):
         self.K = self.E / 3. / (1. - 2. * self.nu)  # N/m^2
 
         # arteriol constants
-        self.A_a = A_a
-        self.B_a = B_a
+        self.A_a = opts.alpha_a
+        self.B_a = opts.beta_a
         self.M_a = self.B_a * self.K / self.A_a / (1 - self.B_a * self.A_a)  # N/m^2
-        self.k_a = k_a  # m^2
-        self.mu_a = mu_a  # Ns/m^2
+        self.k_a = opts.kappa_a  # m^2
+        self.mu_a = opts.mu_a  # Ns/m^2
         self.kappa_a = self.k_a / self.mu_a  # m^4/Ns
 
         # capillary constants
-        self.A_c = A_c
-        self.B_c = B_c
+        self.A_c = opts.alpha_c
+        self.B_c = opts.beta_c
         self.M_c = self.B_c * self.K / self.A_c / (1 - self.B_c * self.A_c)  # N/m^2
-        self.k_c = k_c  # m^2
-        self.mu_c = mu_c  # Ns/m^2
+        self.k_c = opts.kappa_c  # m^2
+        self.mu_c = opts.mu_c  # Ns/m^2
         self.kappa_c = self.k_c / self.mu_c  # m^4/Ns
-        self.k_ce = k_ce
+        self.k_ce = opts.k_ce
 
         # extracellular/CSF constants
         self.A_e = 1.0
@@ -53,18 +65,18 @@ class FourCompartmentMPET(object):
         self.kappa_e = self.k_e / self.mu_e  # m^4/Ns
 
         # venous constants
-        self.A_v = A_v
-        self.B_v = B_v
+        self.A_v = opts.alpha_v
+        self.B_v = opts.beta_v
         self.M_v = self.B_v * self.K / self.A_v / (1 - self.B_v * self.A_v)  # N/m^2
-        self.k_v = k_v  # m^2
-        self.mu_v = mu_v  # Ns/m^2
+        self.k_v = opts.kappa_v  # m^2
+        self.mu_v = opts.mu_v  # Ns/m^2
         self.kappa_v = self.k_v / self.mu_v  # m^4/Ns
 
         # transfer coefficients
-        self.gamma_ac = gamma_ac
-        self.gamma_ce = gamma_ce
-        self.gamma_cv = gamma_cv
-        self.gamma_ev = gamma_ev
+        self.gamma_ac = opts.gamma_ac
+        self.gamma_ce = opts.gamma_ce
+        self.gamma_cv = opts.gamma_cv
+        self.gamma_ev = opts.gamma_ev
 
         # flow contants
         self.Q_p = 5.8e-9  # m^3/s
@@ -81,7 +93,7 @@ class FourCompartmentMPET(object):
         # time control
         self.dt = dt  # time step size
         self.tf = final_time  # final solution time
-        self.t0 = 0.0  # initiali solution time
+        self.t0 = initial_time  # initiali solution time
         self.t = self.t0  # current time
         self.N = int((self.tf - self.t0 + self.dt / 10.) / self.dt) + 1  # number of time steps
 
@@ -91,10 +103,12 @@ class FourCompartmentMPET(object):
         self.A = None  # Derivative matrix
 
         # output file constants
-        self.base_name = name
-        self.transientFileName = None
-        self.wallFileName = None
-        self.saveTrans = None
+        self.base_name = base_name
+        self.transient_fileName = base_name + "_transient.dat"
+        self.wall_file_name = base_name + "_wall.dat"
+        self.save_transient = write_transient
+        self.save_wall = write_wall
+        self.debug_print = debug_print
 
     def _initialise_system(self):
 
@@ -230,57 +244,35 @@ class FourCompartmentMPET(object):
         A[3 * J, 4 * J - 1] = -const_1
         b[3 * J] = self.Q_p + const_2 * x[0] / self.dt
 
+    def _save_wall_file(self):
+        with open(self.wall_file_name, "w") as f:
+            fmt_str = ", ".join(["{:.6e}"] * 6)
+            f.write("r, u, p_a, p_c, p_e, p_v" + os.linesep)
+            for i in range(self.J):
+                f.write(fmt_str.format(self.r[i],
+                                       self.x[i + 0 * self.J],
+                                       self.x[i + 1 * self.J],
+                                       self.x[i + 2 * self.J],
+                                       self.x[i + 3 * self.J],
+                                       self.x[i + 4 * self.J])
+                        + os.linesep)
+
     def solve(self):
         self._initialise_system()
+
+        run_successful = True
         for i in range(self.N):
             self.t = self.t0 + i * self.dt
             self._update_time_dependent_system()
             self.x = np.linalg.solve(self.A, self.b)
+
+            if self.debug_print:
+                relative_error = np.linalg.norm(np.dot(self.A, self.x) - self.b) / np.linalg.norm(self.b)  # norm() is L2 norm
+                print "Current time:", self.t, " sec. The relative error is:", relative_error
+
             if self.x[0] > 1e5:
                 # simulation is getting too big... cancel solution
+                run_successful = False
                 break
-
-
-def main():
-    grid_spacing = 81
-    secs_in_day = 86400
-    final_time = 1.0 * secs_in_day
-    dt = 100.0
-    name = "example"
-
-    # arteriol constants
-    alpha_a = 1.0
-    beta_a = 0.99
-    k_a = 1e-10
-    mu_a = 8.9e-4 * 3.  # about 3 times that of water
-    # capillary constants
-    alpha_c = 0.8
-    beta_c = 0.99
-    k_c = 1e-10
-    mu_c = 8.9e-4 * 3.  # about 3 times that of water
-    k_ce = 6e-4
-    # venous constants
-    alpha_v = 1.0
-    beta_v = 0.99
-    k_v = 1e-10
-    mu_v = 8.9e-4 * 3.  # about 3 times that of water
-    # transfer coefficients
-    gamma_ac = 1.5e-19
-    gamma_ce = 1.0e-22
-    gamma_cv = 1.5e-19
-    gamma_ev = 1.0e-13
-
-    solver = FourCompartmentMPET(final_time, dt, grid_spacing, name,
-                                 alpha_a, beta_a, k_a, mu_a,
-                                 alpha_c, beta_c, k_c, mu_c, k_ce,
-                                 alpha_v, beta_v, k_v, mu_v,
-                                 gamma_ac, gamma_ce, gamma_cv, gamma_ev)
-    solver.solve()
-    # import matplotlib.pyplot as plt
-    # plt.plot(solver.r, solver.x[:solver.J])
-    # plt.show()
-    # print solver.x
-
-
-if __name__ == "__main__":
-    main()
+        if self.save_wall and run_successful:
+            self._save_wall_file()

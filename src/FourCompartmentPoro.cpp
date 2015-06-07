@@ -22,12 +22,30 @@
 namespace mpet
 {
 FourCompartmentPoro::
-FourCompartmentPoro() {}
-
-void
-FourCompartmentPoro::
-setMaterialConstants()
+FourCompartmentPoro(
+    int grid_size,
+    double initial_time,
+    double final_time,
+    double dtSecs,
+    bool saveTransientToFile,
+    bool saveWallToFile,
+    bool debugPrint,
+    std::string bName,
+    const FourCompartmentPoroOptions& opts
+    )
 {
+    mSaveTransientToFile = saveTransientToFile;
+    mSaveWallToFile = saveWallToFile;
+    baseName = bName;
+    mDebugPrint = debugPrint;
+    // remove trailing spaces from the base name
+    size_t endpos = baseName.find_last_not_of(" ");
+    if ( std::string::npos != endpos ) {
+        baseName = baseName.substr( 0, endpos + 1 );
+    }
+    transientFileName = baseName + "_transient.dat";
+    wallFileName = baseName + "_wall.dat";
+
     // geometry constants
     rV      = 30.0e-3;    // m
     rS      = 100.0e-3;   // m
@@ -40,6 +58,23 @@ setMaterialConstants()
     G       = E / 2. / (1. + nu); // N/m^2
     K       = E / 3. / (1. - 2. * nu); // N/m^2
 
+    // arteriol constants
+    A_a     = opts.Aa;
+    B_a     = opts.Ba;
+    M_a     = B_a * K / A_a / (1 - B_a * A_a);
+    k_a     = opts.kA;
+    mu_a    = opts.muA;
+    kappa_a = k_a / mu_a;
+
+    // capillary constants
+    A_c     = opts.Ac;
+    B_c     = opts.Bc;
+    M_c     = B_c * K / A_c / (1 - B_c * A_c);
+    k_c     = opts.kC;
+    mu_c    = opts.muC;
+    kappa_c = k_c / mu_c;
+    k_ce    = opts.kCE;
+
     // extracellular/CSF constants
     A_e     = 1.0;
     B_e     = 0.99;
@@ -48,37 +83,42 @@ setMaterialConstants()
     mu_e    = 8.9e-4;     // Ns/m^2
     kappa_e = k_e / mu_e;   // m^4/Ns
 
+    // venous constants
+    A_v     = opts.Av;
+    B_v     = opts.Bv;
+    M_v     = B_v * K / A_v / (1 - B_v * A_v);
+    k_v     = opts.kV;
+    mu_v    = opts.muV;
+    kappa_v = k_v / mu_v;
+
+    // compartment transfer constants
+    gamma_ac = opts.gammaAC;
+    gamma_ce = opts.gammaCE;
+    gamma_cv = opts.gammaCV;
+    gamma_ev = opts.gammaEV;
+
     // flow constants
     Q_p     = 5.8e-9;     // m^3/s
     Q_o     = Q_p * 1.;   // m^3/s
     R       = 8.5e13;     // m^-3
     p_bp    = 650.0;      // N/m^2
     p_bpA   = 13.3e3;     // N/m^2 arterial blood pressure (100mmHg)
-}
 
-void
-FourCompartmentPoro::
-setGridConstants(
-    int m
-    )
-{
     // grid properties
-    J       = m;        // number of grid points
+    J       = grid_size;        // number of grid points
     dr      = L / (J - 1);  // grid spacing
     r       = Eigen::VectorXd(J); // radius vector
     for (int i = 0; i < J; ++i) {
         r[i] = rV + i * dr;
     }
-}
+    x = Eigen::VectorXd(numElements * J);                 // LHS (solution) vector
+    b = Eigen::VectorXd(numElements * J);                 // RHS vector
+    A = Eigen::MatrixXd(numElements * J,numElements * J); // Derivative matrix
+    x.setZero();
+    b.setZero();
+    A.setZero();
 
-void
-FourCompartmentPoro::
-setTimeConstants(
-    double initial_time,
-    double final_time,
-    double dtSecs
-    )
-{
+    // simulation properties
     dt      = dtSecs;                  // time step size
     tf      = final_time;          // final solution time
     t0      = initial_time;           // initial time
@@ -88,29 +128,7 @@ setTimeConstants(
 
 void
 FourCompartmentPoro::
-initializeSystem()
-{
-    x = Eigen::VectorXd(numElements * J);                 // LHS (solution) vector
-    b = Eigen::VectorXd(numElements * J);                 // RHS vector
-    A = Eigen::MatrixXd(numElements * J,numElements * J); // Derivative matrix
-    x.setZero();
-    b.setZero();
-    A.setZero();
-}
-
-void
-FourCompartmentPoro::
-createTransientDataFile() const
-{
-    std::ofstream fs;
-    fs.open(transientFileName.c_str(), std::fstream::out );
-    fs << "T, U, Pa, Pc, Pe, Pv" << std::endl;
-    fs.close();
-}
-
-void
-FourCompartmentPoro::
-buildSystem ()
+buildSystem()
 {
     // == build the A matrix ==== //
     double sDot_ac, sDot_ce, sDot_cv, sDot_ev;
@@ -259,6 +277,16 @@ saveWallData() const
 
 void
 FourCompartmentPoro::
+createTransientDataFile() const
+{
+    std::ofstream fs;
+    fs.open(transientFileName.c_str(), std::fstream::out );
+    fs << "T, U, Pa, Pc, Pe, Pv" << std::endl;
+    fs.close();
+}
+
+void
+FourCompartmentPoro::
 saveTransientData() const
 {
     std::ofstream fs;
@@ -276,132 +304,34 @@ saveTransientData() const
 
 void
 FourCompartmentPoro::
-initialize(
-    int m,
-    double initialTime,
-    double finalTime,
-    double dtSecs,
-    bool saveT,
-    bool debugPrint,
-    std::string bName
-    )
-{
-    saveTrans = saveT;
-    baseName = bName;
-    mDebugPrint = debugPrint;
-    // remove trailing spaces from the base name
-    size_t endpos = baseName.find_last_not_of(" ");
-    if ( std::string::npos != endpos ) {
-        baseName = baseName.substr( 0, endpos + 1 );
-    }
-    transientFileName = baseName + "_transient.dat";
-    wallFileName = baseName + "_wall.dat";
-
-    setMaterialConstants();
-    setGridConstants(m);
-    setTimeConstants(initialTime, finalTime, dtSecs);
-    initializeSystem();
-    if (saveTrans) {
-        createTransientDataFile();
-    }
-}
-
-void
-FourCompartmentPoro::
-setArteriolConstants(
-    double Aa,
-    double Ba,
-    double kA,
-    double muA
-    )
-{
-    A_a     = Aa;
-    B_a     = Ba;
-    M_a     = B_a * K / A_a / (1 - B_a * A_a);
-    k_a     = kA;
-    mu_a    = muA;
-    kappa_a = k_a / mu_a;
-}
-
-void
-FourCompartmentPoro::
-setCapillaryConstants(
-    double Ac,
-    double Bc,
-    double kC,
-    double muC,
-    double kCE
-    )
-{
-    A_c     = Ac;
-    B_c     = Bc;
-    M_c     = B_c * K / A_c / (1 - B_c * A_c);
-    k_c     = kC;
-    mu_c    = muC;
-    kappa_c = k_c / mu_c;
-    k_ce    = kCE;
-}
-
-void
-FourCompartmentPoro::
-setVenousConstants(
-    double Av,
-    double Bv,
-    double kV,
-    double muV
-    )
-{
-    A_v     = Av;
-    B_v     = Bv;
-    M_v     = B_v * K / A_v / (1 - B_v * A_v);
-    k_v     = kV;
-    mu_v    = muV;
-    kappa_v = k_v / mu_v;
-}
-
-void
-FourCompartmentPoro::
-setTransferConstants(
-    double gammaAC,
-    double gammaCE,
-    double gammaCV,
-    double gammaEV
-    )
-{
-    gamma_ac = gammaAC;
-    gamma_ce = gammaCE;
-    gamma_cv = gammaCV;
-    gamma_ev = gammaEV;
-}
-
-void
-FourCompartmentPoro::
 solve()
 {
-    bool saveToFile = true;
-    for (int i = 0; i < N; ++i) {
+    if (mSaveTransientToFile) {
+        createTransientDataFile();
+    }
+
+    bool simulationFailed = false;
+    for (int i = 0; !simulationFailed && i < N; ++i) {
         t = t0 + i * dt;
         buildSystem();
 
-//        x = A.lu().solve(b);
-        x = A.householderQr().solve(b);
+        x = A.lu().solve(b);
+//        x = A.householderQr().solve(b);
 
         if (mDebugPrint) {
             double relative_error = (A*x - b).norm() / b.norm(); // norm() is L2 norm
-            std::cout << "Current time: " << t << std::endl;
-            std::cout << "... the relative error is:\n" << relative_error << std::endl;
+            std::cout << "Current time: " << t << " sec. The relative error is: " << relative_error << std::endl;
         }
 
-        if (saveTrans) {
+        if (mSaveTransientToFile) {
             saveTransientData();
         }
 
         if (x[0] > 1e5) { // simulation is getting too big... cancel solution
-            saveToFile = false;
-            break;
+            simulationFailed = true;
         }
     }
-    if (saveToFile) {
+    if (mSaveWallToFile && !simulationFailed) {
         saveWallData();
     }
 }
