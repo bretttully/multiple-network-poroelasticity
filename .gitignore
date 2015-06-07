@@ -2,11 +2,7 @@
 *.slo
 *.lo
 *.o
-*.obj
-
-# Precompiled Headers
-*.gch
-*.pch
+*.py[cod]
 
 # Compiled Dynamic libraries
 *.so
@@ -21,6 +17,12 @@
 *.la
 *.a
 *.lib
+
+# IDE preferences
+CMakeLists.txt.user
+
+# build remnants
+_build
 
 # Executables
 *.exe
