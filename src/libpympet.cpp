@@ -28,12 +28,15 @@ BOOST_PYTHON_MODULE(libpympet) {
     class_<mpet::FourCompartmentPoro>("FourCompartmentPoro", init<>())
 //        .def(self_ns::str(self_ns::self))
 //        .def(self_ns::repr(self_ns::self))
-        .def("initialize", &mpet::FourCompartmentPoro::Initialize)
-        .def("setArteriolConstants", &mpet::FourCompartmentPoro::SetArteriolConstants)
-        .def("setCapillaryConstants", &mpet::FourCompartmentPoro::SetCapillaryConstants)
-        .def("setVenousConstants", &mpet::FourCompartmentPoro::SetVenousConstants)
-        .def("setTransferConstants", &mpet::FourCompartmentPoro::SetTransferConstants)
-        .def("solve", &mpet::FourCompartmentPoro::Solve)
+    .def("initialize", &mpet::FourCompartmentPoro::Initialize)
+    .def("setArteriolConstants",
+         &mpet::FourCompartmentPoro::SetArteriolConstants)
+    .def("setCapillaryConstants",
+         &mpet::FourCompartmentPoro::SetCapillaryConstants)
+    .def("setVenousConstants", &mpet::FourCompartmentPoro::SetVenousConstants)
+    .def("setTransferConstants",
+         &mpet::FourCompartmentPoro::SetTransferConstants)
+    .def("solve", &mpet::FourCompartmentPoro::Solve)
 //        .def_pickle(ns::controllerResultPickleSuite())
-        ;
+    ;
 }

@@ -25,43 +25,107 @@
 
 namespace mpet
 {
-class FourCompartmentPoro {
-
+class FourCompartmentPoro
+{
 public:
     // ************ public methods ************** //
     FourCompartmentPoro ();
     ~FourCompartmentPoro() {}
-    void Initialize (int J, double INIT_TIME_SECS, double FINAL_TIME_SECS, double DT_SECS, bool saveTrans, std::string baseName);    void SetArteriolConstants( double A_a, double B_a, double k_a, double mu_a );
-    void SetCapillaryConstants( double A_c, double B_c, double k_c, double mu_c, double k_ce );
-    void SetVenousConstants( double A_v, double B_v, double k_v, double mu_v );
-    void SetTransferConstants( double gamma_ac, double gamma_ce, double gamma_cv, double gamma_ev );
+    void Initialize (
+        int J,
+        double initialTime,
+        double finalTime,
+        double dtSecs,
+        bool saveTrans,
+        bool debugPrint,
+        std::string baseName
+        );
+    void SetArteriolConstants(
+        double A_a,
+        double B_a,
+        double k_a,
+        double mu_a
+        );
+    void SetCapillaryConstants(
+        double A_c,
+        double B_c,
+        double k_c,
+        double mu_c,
+        double k_ce
+        );
+    void SetVenousConstants(
+        double A_v,
+        double B_v,
+        double k_v,
+        double mu_v
+        );
+    void SetTransferConstants(
+        double gamma_ac,
+        double gamma_ce,
+        double gamma_cv,
+        double gamma_ev
+        );
     void Solve ();
 
 private:
     // ************ private contants ************* //
     // geometry constants
-    double rV, rS, L, d;
+    double rV;
+    double rS;
+    double L;
+    double d;
 
     // poroelastic constants
-    double nu, E, G, K;
+    double nu;
+    double E;
+    double G;
+    double K;
 
     // arteriol constants
-    double A_a, B_a, M_a, kappa_a, k_a, mu_a;
+    double A_a;
+    double B_a;
+    double M_a;
+    double kappa_a;
+    double k_a;
+    double mu_a;
 
     // capillary constants
-    double A_c, B_c, M_c, kappa_c, k_c, mu_c, k_ce;
+    double A_c;
+    double B_c;
+    double M_c;
+    double kappa_c;
+    double k_c;
+    double mu_c;
+    double k_ce;
 
     // extracellular/CSF constants
-    double A_e, B_e, M_e, kappa_e, k_e, mu_e;
+    double A_e;
+    double B_e;
+    double M_e;
+    double kappa_e;
+    double k_e;
+    double mu_e;
 
     // venous constants
-    double A_v, B_v, M_v, kappa_v, k_v, mu_v;
+    double A_v;
+    double B_v;
+    double M_v;
+    double kappa_v;
+    double k_v;
+    double mu_v;
 
     // transfer coefficients
-    double gamma_ac, gamma_ce, gamma_cv, gamma_ev;
+    double gamma_ac;
+    double gamma_ce;
+    double gamma_cv;
+    double gamma_ev;
 
     // flow contants
-    double Q_p, Q_o, R, p_bp, p_bpA;
+    double Q_p;
+    double Q_o;
+    double R;
+    double p_bp;
+    double p_bpA;
 
     // grid properties
     int J;
@@ -69,7 +133,10 @@ private:
     double dr;
 
     // time control
-    double dt, tf, t0, t;
+    double dt;
+    double tf;
+    double t0;
+    double t;
     int N;
 
     // solution properties
@@ -78,13 +145,23 @@ private:
     Eigen::MatrixXd A;
 
     // output file constants
-    std::string baseName, transientFileName, wallFileName;
+    std::string baseName;
+    std::string transientFileName;
+    std::string wallFileName;
     bool saveTrans;
+
+    bool mDebugPrint;
 
     // ************ private methods ************** //
     void setMaterialConstants ();
-    void setGridConstants (int m);
-    void setTimeConstants (double INIT_TIME_SECS, double FINAL_TIME_SECS, double DT_SECS);
+    void setGridConstants (
+        int m
+        );
+    void setTimeConstants (
+        double initialTime,
+        double finalTime,
+        double dtSecs
+        );
     void initializeSystem ();
     void createTransientDataFile ();
     void buildSystem ();
