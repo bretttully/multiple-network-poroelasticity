@@ -23,6 +23,7 @@ import scipy.sparse as sps
 import scipy.sparse.linalg as spsl
 import matplotlib.pyplot as plt
 from mpet import FourCompartmentPoroOptions
+from mpet import FourCompartmentPoroResult
 
 
 class FourCompartmentMPET(object):
@@ -306,4 +307,12 @@ class FourCompartmentMPET(object):
 
         if self.save_wall:
             self._save_wall_file()
+
+        result = FourCompartmentPoroResult()
+        result.displacement = self.x[0 * self.J]
+        result.pressureArt = self.x[1 * self.J]
+        result.pressureCap = self.x[2 * self.J]
+        result.pressureCSF = self.x[3 * self.J]
+        result.pressureVen = self.x[4 * self.J]
+        return result
 

@@ -323,7 +323,7 @@ saveTransientData() const
     fs.close();
 }
 
-void
+FourCompartmentPoroResult
 FourCompartmentPoro::
 solve()
 {
@@ -358,5 +358,12 @@ solve()
     if (mSaveWallToFile) {
         saveWallData();
     }
+    FourCompartmentPoroResult result;
+    result.displacement = x[0 * J];
+    result.pressureArt = x[1 * J];
+    result.pressureCap = x[2 * J];
+    result.pressureCSF = x[3 * J];
+    result.pressureVen = x[4 * J];
+    return result;
 }
 }

@@ -54,6 +54,16 @@ BOOST_PYTHON_MODULE(libpympet) {
 //        .def_pickle(ns::controllerResultPickleSuite())
         ;
 
+    class_<mpet::FourCompartmentPoroResult>("FourCompartmentPoroResult", init<>())
+        .def(self_ns::str(self_ns::self))
+        .def(self_ns::repr(self_ns::self))
+        .def_readwrite("displacement", &mpet::FourCompartmentPoroResult::displacement)
+        .def_readwrite("pressure_art", &mpet::FourCompartmentPoroResult::pressureArt)
+        .def_readwrite("pressure_cap", &mpet::FourCompartmentPoroResult::pressureCap)
+        .def_readwrite("pressure_csf", &mpet::FourCompartmentPoroResult::pressureCSF)
+        .def_readwrite("pressure_ven", &mpet::FourCompartmentPoroResult::pressureVen)
+        ;
+
     class_<mpet::FourCompartmentPoro>("FourCompartmentPoro",
                                       init<int, double, int, double,
                                            bool, bool, bool, std::string,

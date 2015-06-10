@@ -29,7 +29,7 @@ def run(run_pure_python=False, run_profiling=False):
     grid_spacing = 251
     secs_in_day = 86400.0
     initial_time = 0.0
-    num_steps = 864
+    num_steps = 8640
     dt = secs_in_day / num_steps
     write_transient = False
     write_wall = True
@@ -81,7 +81,7 @@ def run(run_pure_python=False, run_profiling=False):
     else:
         s = CPPSolver(grid_spacing, initial_time, num_steps, dt,
                       write_transient, write_wall, debug_print, base_name, opts)
-    s.solve()
+    result = s.solve()
 
     if run_profiling:
         mem_profiling_on = profiling.profiling_memory_on()
@@ -113,6 +113,30 @@ def run(run_pure_python=False, run_profiling=False):
                 except subprocess.CalledProcessError as err:
                     print err
 
+    output1 = list()
+    output1.append(opts.alpha_a)
+    output1.append(opts.beta_a)
+    output1.append(opts.kappa_a)
+    output1.append(opts.alpha_c)
+    output1.append(opts.beta_c)
+    output1.append(opts.kappa_c)
+    output1.append(opts.k_ce)
+    output1.append(opts.alpha_v)
+    output1.append(opts.beta_v)
+    output1.append(opts.kappa_v)
+    output1.append(opts.gamma_ac)
+    output1.append(opts.gamma_ce)
+    output1.append(opts.gamma_cv)
+    output1.append(opts.gamma_ev)
+
+    output2 = list()
+    output2.append(result.displacement)
+    output2.append(result.pressure_art)
+    output2.append(result.pressure_cap)
+    output2.append(result.pressure_csf)
+    output2.append(result.pressure_ven)
+    return [output1, output2]
+
 
 if __name__ == "__main__":
     # import timeit
@@ -128,10 +152,14 @@ if __name__ == "__main__":
     if True:
         import multiprocessing as mp
         pool = mp.Pool(processes=mp.cpu_count())
-        pool.map(run, [True, False])
+        results = pool.map(run, [True, False])
     else:
-        run(run_pure_python=True)
-        run(run_pure_python=False)
+        results = list()
+        results.append(run(run_pure_python=True))
+        results.append(run(run_pure_python=False))
+
+    for result in results:
+        print result
 
     p = np.genfromtxt("example_python_wall.dat", skiprows=1, delimiter=", ")
     c = np.genfromtxt("example_cpp_wall.dat", skiprows=1, delimiter=", ")

@@ -52,13 +52,6 @@ public:
     // aqueduct diameter
     double aqueductDiameter;
 
-    /**
-     * Write the object to a stream
-     *
-     * @param os The output stream
-     * @param rhs The vector to be written
-     * @return
-     */
     friend std::ostream& operator <<(
         std::ostream& os,
         const FourCompartmentPoroOptions& rhs
@@ -91,6 +84,27 @@ public:
     }
 };
 
+class FourCompartmentPoroResult {
+public:
+    double displacement;
+    double pressureArt;
+    double pressureCap;
+    double pressureCSF;
+    double pressureVen;
+
+    friend std::ostream& operator <<(
+        std::ostream& os,
+        const FourCompartmentPoroResult & rhs
+        )
+    {
+        return os << rhs.displacement
+                  << ", " << rhs.pressureArt
+                  << ", " << rhs.pressureCap
+                  << ", " << rhs.pressureCSF
+                  << ", " << rhs.pressureVen;
+    }
+};
+
 class FourCompartmentPoro
 {
 public:
@@ -108,7 +122,7 @@ public:
 
     ~FourCompartmentPoro() {}
 
-    void solve();
+    FourCompartmentPoroResult solve();
 
 private:
     // ************ private contants ************* //
