@@ -95,8 +95,8 @@ class FourCompartmentMPET(object):
         n = 5  # U, Pa, Pc, Pe, Pv
         vec_size = n * self.J
         self.x = np.zeros((vec_size,))  # LHS (solution) vector
-        self.b = None  # RHS vector
-        self.A = None  # Derivative matrix
+        self.b = np.zeros((vec_size,))  # RHS vector
+        self.A = np.zeros((vec_size, vec_size))  # Derivative matrix
         self.residual = None  # residual = A*x - b
 
         # time control
@@ -115,9 +115,6 @@ class FourCompartmentMPET(object):
 
     def _build_system(self):
         # == build the A & b matrix ==
-        vec_size = self.x.shape[0]
-        self.b = np.zeros((vec_size,))
-        self.A = np.zeros((vec_size, vec_size))
 
         # ---
         # useful consts

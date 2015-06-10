@@ -31,14 +31,14 @@ def run(run_pure_python=False, run_profiling=False):
     initial_time = 0.0
     num_steps = 864
     dt = secs_in_day / num_steps
-    write_transient = True
+    write_transient = False
     write_wall = True
     base_name = "example"
     if run_pure_python:
         base_name += "_python"
     else:
         base_name += "_cpp"
-    debug_print = True
+    debug_print = False
 
     opts = FourCompartmentPoroOptions()
     # arteriol constants
@@ -120,6 +120,8 @@ if __name__ == "__main__":
     # print timeit.timeit("from simple import run; run(run_pure_python=True)", number=10)
     # print "C++:"
     # print timeit.timeit("from simple import run; run(run_pure_python=False)", number=10)
+
+    # run(run_pure_python=True, run_profiling=True)
 
     import matplotlib.pyplot as plt
     import numpy as np
