@@ -334,6 +334,10 @@ solve()
 //        Eigen::SimplicialCholesky<SpMat> chol(sparseA);  // performs a Cholesky factorization of A
 //        x = chol.solve(b);         // use the factorization to solve for the given
 
+//        auto r0 = b - A * x;
+//        auto dx = A.lu().solve(r0);
+//        x += dx;
+
         x = A.lu().solve(b);
 //        x = A.householderQr().solve(b);
         residual = A * x - b;

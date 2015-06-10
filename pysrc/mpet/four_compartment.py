@@ -320,7 +320,7 @@ class FourCompartmentMPET(object):
 
             elif solver_type == 1:
                 # Jacobian preconditioner
-                P = np.diag(np.diag(self.A))
+                P = np.linalg.inv(np.diag(np.diag(self.A)))
                 y = np.linalg.solve(np.dot(self.A, np.linalg.inv(P)), self.b)
                 self.x = np.linalg.solve(P, y)
 
@@ -341,10 +341,16 @@ class FourCompartmentMPET(object):
             elif solver_type == 5:
                 import scipy.sparse.linalg as spsl
                 # __all__ = ['bicg','bicgstab','cg','cgs','gmres','qmr']
-                M = np.diag(np.diag(self.A))
-                self.x, info = spsl.bicg(self.A, self.b, M=M)
-                # self.x, info = spsl.bicgstab(self.A, self.b, M=M)
+                M = np.linalg.inv(np.diag(np.diag(self.A)))
+                # M = np.linalg.inv(self.A)
+                # self.x, info = spsl.bicg(self.A, self.b, M=M)
+                self.x, info = spsl.bicgstab(self.A, self.b, M=M)
                 print info
+
+            elif solver_type == 6:
+                r0 = self.b - np.dot(self.A, self.x)
+                dx = np.linalg.solve(self.A, r0)
+                self.x += dx
 
             else:
                 raise RuntimeError("Invalid solver type")
