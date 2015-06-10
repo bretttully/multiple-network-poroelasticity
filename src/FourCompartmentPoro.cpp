@@ -17,6 +17,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+// bring in things like M_PI with this define
+#define _USE_MATH_DEFINES
+#include <cmath>
 #include "FourCompartmentPoro.h"
 #include <eigen3/Eigen/Sparse>
 
@@ -26,7 +29,7 @@ FourCompartmentPoro::
 FourCompartmentPoro(
     int grid_size,
     double initial_time,
-    double final_time,
+    int num_steps,
     double dtSecs,
     bool saveTransientToFile,
     bool saveWallToFile,
@@ -35,29 +38,17 @@ FourCompartmentPoro(
     const FourCompartmentPoroOptions& opts
     )
 {
-    mSaveTransientToFile = saveTransientToFile;
-    mSaveWallToFile = saveWallToFile;
-    baseName = bName;
-    mDebugPrint = debugPrint;
-    // remove trailing spaces from the base name
-    size_t endpos = baseName.find_last_not_of(" ");
-    if ( std::string::npos != endpos ) {
-        baseName = baseName.substr( 0, endpos + 1 );
-    }
-    transientFileName = baseName + "_transient.dat";
-    wallFileName = baseName + "_wall.dat";
-
     // geometry constants
     rV      = 30.0e-3;    // m
     rS      = 100.0e-3;   // m
     L       = rS - rV;    // m
-    d       = 4e-3; //0.25e-3;    // m (assume a blocked aqueduct 0.25mm)
+    d       = opts.aqueductDiameter;
 
     // poroelastic constants
     E       = 584.0;      // N/m^2
     nu      = 0.35;
-    G       = E / 2. / (1. + nu); // N/m^2
-    K       = E / 3. / (1. - 2. * nu); // N/m^2
+    G       = E / (2. * (1. + nu)); // N/m^2
+    K       = E / (3. * (1. - 2. * nu)); // N/m^2
 
     // arteriol constants
     A_a     = opts.Aa;
@@ -112,27 +103,40 @@ FourCompartmentPoro(
     for (int i = 0; i < J; ++i) {
         r[i] = rV + i * dr;
     }
-    x = Eigen::VectorXd(numElements * J);                 // LHS (solution) vector
-    b = Eigen::VectorXd(numElements * J);                 // RHS vector
-    A = Eigen::MatrixXd(numElements * J,numElements * J); // Derivative matrix
-    residual = Eigen::VectorXd(numElements * J);          // r = A*x - b
+    x = Eigen::VectorXd(numElements * J); // LHS (solution) vector
     x.setZero();
-    b.setZero();
-    A.setZero();
-    residual.setZero();
 
     // simulation properties
-    dt      = dtSecs;                             // time step size
-    tf      = final_time;                         // final solution time
-    t0      = initial_time;                       // initial time
-    t       = t0;                                 // current time
-    N       = int((tf - t0 + dt / 10.) / dt) + 1; // number of time steps
+    dt      = dtSecs;        // time step size
+    t0      = initial_time;  // initial time
+    t       = t0;            // current time
+    N       = num_steps;     // number of time steps
+
+    // output file constants
+    mSaveTransientToFile = saveTransientToFile;
+    mSaveWallToFile = saveWallToFile;
+    baseName = bName;
+    mDebugPrint = debugPrint;
+    // remove trailing spaces from the base name
+    size_t endpos = baseName.find_last_not_of(" ");
+    if ( std::string::npos != endpos ) {
+        baseName = baseName.substr(0, endpos + 1);
+    }
+    transientFileName = baseName + "_transient.dat";
+    wallFileName = baseName + "_wall.dat";
 }
 
 void
 FourCompartmentPoro::
-initialiseSystem()
+buildSystem()
 {
+    b = Eigen::VectorXd(numElements * J);                 // RHS vector
+    A = Eigen::MatrixXd(numElements * J,numElements * J); // Derivative matrix
+    residual = Eigen::VectorXd(numElements * J);          // r = A*x - b
+    b.setZero();
+    A.setZero();
+    residual.setZero();
+
     // == build the A matrix ==== //
     double oneOverDrSquared = 1.0 / (dr * dr);
     double strainMultiplier = (1.0 - 2.0 * nu) / (4.0 * G * (1.0 - nu) * dr);
@@ -140,7 +144,6 @@ initialiseSystem()
         double displacementMultiplierMinus = oneOverDrSquared - 1. / (r[i] * dr);
         double displacementMultiplierCenter = -2. * oneOverDrSquared;
         double displacementMultiplierPlus = oneOverDrSquared + 1. / (r[i] * dr);
-
         // n = 0: Displacement equation
         // n = 1: arteriol pressure equation
         // n = 2: capillary pressure equation
@@ -152,12 +155,12 @@ initialiseSystem()
             A(n * J + i, n * J + i + 1) = displacementMultiplierPlus;
         }
 
+        // ---
         // update displacement equation
         A(i, i) -= 2.0 / std::pow(r[i], 2);
-
         // section 2
-        A(i, J + i - 1) = strainMultiplier * A_a;
-        A(i, J + i + 1) = -strainMultiplier * A_a;
+        A(i, 1 * J + i - 1) = strainMultiplier * A_a;
+        A(i, 1 * J + i + 1) = -strainMultiplier * A_a;
         // section 3
         A(i, 2 * J + i - 1) = strainMultiplier * A_c;
         A(i, 2 * J + i + 1) = -strainMultiplier * A_c;
@@ -167,66 +170,13 @@ initialiseSystem()
         // section 5
         A(i, 4 * J + i - 1) = strainMultiplier * A_v;
         A(i, 4 * J + i + 1) = -strainMultiplier * A_v;
-    }
 
-    // ---
-    // Boundary Conditions
-
-    // no displacement at skull
-    A(J - 1, J - 1) = 1.0;
-
-    // constant arterial blood pressure at the skull
-    A(2 * J - 1, 2 * J - 1) = 1.0;
-    b[2 * J - 1] = p_bpA;
-
-    // no capillary flow at the skull
-    A(3 * J - 1, 3 * J - 2) = -1.0;
-    A(3 * J - 1, 3 * J - 1) = 1.0;
-
-    // CSF pressure at skull
-    A(4 * J - 1, 4 * J - 1) = 1.0;
-    b[4 * J - 1] = p_bp + mu_e * R * Q_o;
-
-    // constant venous blood pressure at the skull
-    A(5 * J - 1, 5 * J - 1) = 1.0;
-    b[5 * J - 1] = p_bp;
-
-    // stress equilibrium in the ventricle wall
-    A(0, 0) = 2.0 * nu / r[0] - (1.0 - nu) / dr;
-    A(0, 1) = (1.0 - nu) / dr;
-    double stressMultiplier = (1.0 + nu) * (1.0 - 2.0 * nu) / E;
-    A(0, 1 * J) = (1. - A_a) * stressMultiplier;
-    A(0, 2 * J) = (1. - A_c) * stressMultiplier;
-    A(0, 3 * J) = (1. - A_e) * stressMultiplier;
-    A(0, 4 * J) = (1. - A_v) * stressMultiplier;
-
-    // no arteriol blood flow into ventricles
-    A(J, J) = -1.0;
-    A(J, J + 1) = 1.0;
-
-    // capillary blood flow into ventricles
-    A(2 * J, 2 * J) = -1.0;
-    A(2 * J, 2 * J + 1) = 1.0;
-    b[2 * J] = mu_a * dr * Q_p / k_ce;
-
-    // venous blood flow into ventricles
-    A(4 * J, 4 * J) = -1.0;
-    A(4 * J, 4 * J + 1) = 1.0;
-}
-
-void
-FourCompartmentPoro::
-updateTimeDependentSystem()
-{
-    // == build the A matrix ==== //
-    double sDot_ac, sDot_ce, sDot_cv, sDot_ev;
-    for (int i = 1; i < J - 1; ++i) {
+        // ---
         // set transfer fluxes
-        sDot_ac = gamma_ac * std::fabs(x[i + 1 * J] - x[i + 2 * J]);
-        sDot_ce = gamma_ce * std::fabs(x[i + 2 * J] - x[i + 3 * J]);
-        sDot_cv = gamma_cv * std::fabs(x[i + 2 * J] - x[i + 4 * J]);
-        sDot_ev = gamma_ev * std::fabs(x[i + 3 * J] - x[i + 4 * J]);
-
+        double sDot_ac = gamma_ac * std::fabs(x[i + 1 * J] - x[i + 2 * J]);
+        double sDot_ce = gamma_ce * std::fabs(x[i + 2 * J] - x[i + 3 * J]);
+        double sDot_cv = gamma_cv * std::fabs(x[i + 2 * J] - x[i + 4 * J]);
+        double sDot_ev = gamma_ev * std::fabs(x[i + 3 * J] - x[i + 4 * J]);
         // arteriol pressure equation
         b[J + i] = (sDot_ac) / kappa_a;
         // capillary pressure equation
@@ -237,18 +187,77 @@ updateTimeDependentSystem()
         b[4 * J + i] = (-sDot_cv - sDot_ev) / kappa_v;
     }
 
+    // ---
     // Boundary Conditions
 
-    // conservation of mass in ventricle
+    // no displacement at skull
+    A(J - 1, J - 1) = 1.0;
+    b[J - 1] = 0.0;
+
+    // constant arterial blood pressure at the skull
+    A(2 * J - 1, 2 * J - 1) = 1.0;
+    b[2 * J - 1] = p_bpA;
+
+    // no capillary flow at the skull
+    A(3 * J - 1, 3 * J - 2) = -1.0;
+    A(3 * J - 1, 3 * J - 1) = 1.0;
+    b[3 * J - 1] = 0.0;
+
+    // CSF pressure at skull
+    A(4 * J - 1, 4 * J - 1) = 1.0;
+    b[4 * J - 1] = 1.0 * (p_bp + mu_e * R * Q_o);
+
+    // constant venous blood pressure at the skull
+    A(5 * J - 1, 5 * J - 1) = 1.0;
+    b[5 * J - 1] = p_bp;
+
+    // stress equilibrium in the ventricle wall
+    A(0, 0) = (2.0 * nu / r[0] - (1.0 - nu) / dr);
+    A(0, 1) = (1.0 - nu) / dr;
+    double stressMultiplier = (1.0 + nu) * (1.0 - 2.0 * nu) / E;
+    A(0, 1 * J) = (1. - A_a) * stressMultiplier;
+    A(0, 2 * J) = (1. - A_c) * stressMultiplier;
+    A(0, 3 * J) = (1. - A_e) * stressMultiplier;
+    A(0, 4 * J) = (1. - A_v) * stressMultiplier;
+    b[0] = 0.0;
+
+    // no arteriol blood flow into ventricles
+    A(J, J) = -1.0;
+    A(J, J + 1) = 1.0;
+    b[J] = 0.0;
+
+    // capillary blood flow into ventricles
+    A(2 * J, 2 * J) = -1.0;
+    A(2 * J, 2 * J + 1) = 1.0;
+    b[2 * J] = mu_a * dr * Q_p / k_ce;
+
+    // venous blood flow into ventricles
+    A(4 * J, 4 * J) = -1.0;
+    A(4 * J, 4 * J + 1) = 1.0;
+    b[4 * J] = 0.0;
+
+    // ---
+    // Transient Boundary Conditions
     double d2 = d * d;
     double d4 = d2 * d2;
     double const_1 = M_PI * d4 / (128. * mu_e * L);
     double const_2 = 4.0 * M_PI * (r[0] + x[0]) * (r[0] + x[0]);
+    // conservation of mass in ventricle
     A(3 * J, 0) = const_2 / dt;
     A(3 * J, 3 *J) = const_1 + const_2 * kappa_e / dr;
     A(3 * J, 3 * J + 1) = -const_2 * kappa_e / dr;
     A(3 * J, 4 * J - 1) = -const_1;
     b[3 * J] = Q_p + const_2 * x[0] / dt;
+
+    // ---
+    // Scale to better condition the problem
+    for (int i = 0; i < numElements * J; ++i) {
+        double aMax = A.row(i).maxCoeff();
+        double aMin = A.row(i).minCoeff();
+        double scale = 1.0 / (aMax - aMin);
+        A.row(i) *= scale;
+        b[i] *= scale;
+    }
 }
 
 void
@@ -322,29 +331,20 @@ solve()
         createTransientDataFile();
     }
 
-    initialiseSystem();
-
-    bool simulationFailed = false;
-    for (int i = 0; !simulationFailed && i < N; ++i) {
+    using SparseMatrixD = Eigen::SparseMatrix<double>;
+    for (int i = 0; i < N; ++i) {
         t = t0 + i * dt;
-        updateTimeDependentSystem();
+        buildSystem();
 
-//        using SpMat = Eigen::SparseMatrix<double>;
-//        SpMat sparseA = A.sparseView();
-//        Eigen::SimplicialCholesky<SpMat> chol(sparseA);  // performs a Cholesky factorization of A
-//        x = chol.solve(b);         // use the factorization to solve for the given
-
-//        auto r0 = b - A * x;
-//        auto dx = A.lu().solve(r0);
-//        x += dx;
-
-        x = A.lu().solve(b);
-//        x = A.householderQr().solve(b);
+        SparseMatrixD sparseA = A.sparseView();
+        sparseA.makeCompressed();
+        Eigen::SparseLU<SparseMatrixD> solver(sparseA);
+        x = solver.solve(b);
         residual = A * x - b;
 
         if (mDebugPrint) {
             double relative_error = residual.norm() / b.norm(); // norm() is L2 norm
-            std::cout << "Current time: " << t << " sec. The relative error is: " << relative_error << std::endl;
+            std::cout << baseName << " - Current time: " << t << " sec. The relative error is: " << relative_error << std::endl;
         }
 
         if (mSaveTransientToFile) {
@@ -352,10 +352,10 @@ solve()
         }
 
         if (x[0] > 1e5) { // simulation is getting too big... cancel solution
-            simulationFailed = true;
+            break;
         }
     }
-    if (mSaveWallToFile && !simulationFailed) {
+    if (mSaveWallToFile) {
         saveWallData();
     }
 }

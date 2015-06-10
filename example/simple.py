@@ -26,12 +26,11 @@ from mpet import profiling
 
 
 def run(run_pure_python=False, run_profiling=False):
-    grid_spacing = 81
-    secs_in_day = 86400
+    grid_spacing = 251
+    secs_in_day = 86400.0
     initial_time = 0.0
-    final_time = 1.0 * secs_in_day
-    num_steps = 1
-    dt = (final_time - initial_time) / num_steps
+    num_steps = 864
+    dt = secs_in_day / num_steps
     write_transient = False
     write_wall = True
     base_name = "example"
@@ -67,6 +66,9 @@ def run(run_pure_python=False, run_profiling=False):
     opts.gamma_cv = 1.5e-19
     opts.gamma_ev = 1.0e-13
 
+    # aqueduct diameter
+    opts.aqueduct_diameter = 4e-3#0.25e-3#  # m (assume a blocked aqueduct 0.25mm)
+
     prof_prefix = os.path.join(os.getcwd(), base_name)
     if run_profiling:
         profiling.start(prof_prefix,
@@ -74,10 +76,10 @@ def run(run_pure_python=False, run_profiling=False):
                         cpu_profile_freq=1000)
 
     if run_pure_python:
-        s = PythonSolver(grid_spacing, initial_time, final_time, dt,
+        s = PythonSolver(grid_spacing, initial_time, num_steps, dt,
                          write_transient, write_wall, debug_print, base_name, opts)
     else:
-        s = CPPSolver(grid_spacing, initial_time, final_time, dt,
+        s = CPPSolver(grid_spacing, initial_time, num_steps, dt,
                       write_transient, write_wall, debug_print, base_name, opts)
     s.solve()
 
@@ -119,6 +121,8 @@ if __name__ == "__main__":
     # print "C++:"
     # print timeit.timeit("from simple import run; run(run_pure_python=False)", number=10)
 
+    # run(run_pure_python=True, run_profiling=True)
+
     import matplotlib.pyplot as plt
     import numpy as np
     if True:
@@ -141,7 +145,7 @@ if __name__ == "__main__":
     for plt_idx, title in enumerate(plots):
         plt.subplot(2, num_plots, plt_idx + 1)
         plt.title(title)
-        plt.plot(p[:, 0], p[:, plt_idx + 1], 'bx', label="Python")
+        plt.plot(p[:, 0], p[:, plt_idx + 1], 'b-', label="Python")
         plt.plot(c[:, 0], c[:, plt_idx + 1], 'r-', label="C++")
         if plt_idx == 0:
             plt.legend()

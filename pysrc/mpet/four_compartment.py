@@ -19,25 +19,28 @@ limitations under the License.
 """
 import os
 import numpy as np
+import scipy.sparse as sps
+import scipy.sparse.linalg as spsl
+import matplotlib.pyplot as plt
 from mpet import FourCompartmentPoroOptions
 
 
 class FourCompartmentMPET(object):
-    def __init__(self, grid_spacing, initial_time, final_time, dt,
-                 write_transient, write_wall, debug_print, base_name, opts, blocked=False):
+    def __init__(self, grid_spacing, initial_time, num_steps, dt,
+                 write_transient, write_wall, debug_print, base_name, opts):
         assert isinstance(opts, FourCompartmentPoroOptions)
 
         # geometry constants
         self.rV = 30.0e-3  # m
         self.rS = 100.0e-3  # m
         self.L = self.rS - self.rV  # m
-        self.d = 0.25e-3 if blocked else 4e-3  # m (assume a blocked aqueduct 0.25mm)
+        self.d = opts.aqueduct_diameter
 
         # poroelastic constants
         self.nu = 0.35
         self.E = 584.0  # N/m^2
-        self.G = self.E / 2. / (1. + self.nu)  # N/m^2
-        self.K = self.E / 3. / (1. - 2. * self.nu)  # N/m^2
+        self.G = self.E / (2. * (1. + self.nu))  # N/m^2
+        self.K = self.E / (3. * (1. - 2. * self.nu))  # N/m^2
 
         # arteriol constants
         self.A_a = opts.alpha_a
@@ -88,20 +91,19 @@ class FourCompartmentMPET(object):
         # grid properties
         self.J = grid_spacing
         self.r = np.linspace(self.rV, self.rS, self.J)
-        self.dr = self.r[1] - self.r[0]
+        self.dr = self.L / (self.J - 1)
+        n = 5  # U, Pa, Pc, Pe, Pv
+        vec_size = n * self.J
+        self.x = np.zeros((vec_size,))  # LHS (solution) vector
+        self.b = np.zeros((vec_size,))  # RHS vector
+        self.A = np.zeros((vec_size, vec_size))  # Derivative matrix
+        self.residual = None  # residual = A*x - b
 
         # time control
         self.dt = dt  # time step size
-        self.tf = final_time  # final solution time
         self.t0 = initial_time  # initiali solution time
         self.t = self.t0  # current time
-        self.N = int((self.tf - self.t0 + self.dt / 10.) / self.dt) + 1  # number of time steps
-
-        # solution properties
-        self.x = None  # LHS (solution) vector
-        self.b = None  # RHS vector
-        self.A = None  # Derivative matrix
-        self.residual = None  # residual = A*x - b
+        self.N = num_steps  # number of time steps
 
         # output file constants
         self.base_name = base_name
@@ -111,112 +113,32 @@ class FourCompartmentMPET(object):
         self.save_wall = write_wall
         self.debug_print = debug_print
 
-    def _initialise_system(self):
+    def _build_system(self):
+        # == build the A & b matrix ==
 
-        # == build the A matrix ==
-        n = 5  # U, Pa, Pc, Pe, Pv
-        vec_size = n * self.J
-        self.x = np.zeros((vec_size,))
-        self.b = np.zeros((vec_size,))
-        self.A = np.zeros((vec_size, vec_size))
-
-        self._initialise_difference_tridiagonals()
-        self._initialise_poro_diagonals()
-        self._initialise_boundary_conditions()
-
-    def _initialise_difference_tridiagonals(self):
+        # ---
+        # useful consts
         A = self.A
+        b = self.b
+        x = self.x
         J = self.J
         dr = self.dr
-        dr2 = dr * dr
+        one_over_dr_squared = 1.0 / (dr * dr)
         r = self.r
         central_r = self.r[1:-1]
+
+        # ---
         # set up the difference tridiagonals
-        difference_eye_minus = np.diag(1. / dr2 - 1. / (r[1:] * dr), -1)
-        difference_eye_central = np.eye(J, k=0) * (-2.0 / dr2)
-        difference_eye_plus = np.diag(1. / dr2 + 1. / (r[:-1] * dr), 1)
+        difference_eye_minus = np.diag(one_over_dr_squared - 1. / (r[1:] * dr), -1)
+        difference_eye_central = -2.0 * one_over_dr_squared * np.eye(J, k=0)
+        difference_eye_plus = np.diag(one_over_dr_squared + 1. / (r[:-1] * dr), 1)
         difference_tridiagonal = difference_eye_minus + difference_eye_central + difference_eye_plus
         difference_tridiagonal[0, :] = 0.0
         difference_tridiagonal[-1, :] = 0.0
         for i in range(self.x.shape[0] / self.J):
             A[i * J:(i + 1) * J, i * J:(i + 1) * J] = difference_tridiagonal
         # update for the displacement equation
-        A[1:J - 1, 1:J - 1] += np.diag(- 2. / (central_r * central_r), 0)
-
-    def _initialise_poro_diagonals(self):
-        J = self.J
-        dr = self.dr
-        A = self.A
-        # ---
-        # set up the poro diagonals
-        strain_multiplier = (1.0 - 2.0 * self.nu) / (4.0 * self.G * (1.0 - self.nu) * dr)
-        displacement_tridiagonal = (np.eye(J, k=-1) - np.eye(J, k=1)) * strain_multiplier
-        displacement_tridiagonal[0, :] = 0.0
-        displacement_tridiagonal[-1, :] = 0.0
-        A[:J, 1 * J:2 * J] = displacement_tridiagonal * self.A_a
-        A[:J, 2 * J:3 * J] = displacement_tridiagonal * self.A_c
-        A[:J, 3 * J:4 * J] = displacement_tridiagonal * self.A_e
-        A[:J, 4 * J:5 * J] = displacement_tridiagonal * self.A_v
-
-    def _initialise_boundary_conditions(self):
-        J = self.J
-        dr = self.dr
-        r = self.r
-        A = self.A
-        b = self.b
-
-        # ---
-        # Boundary Conditions
-
-        # no displacement at skull
-        A[J - 1, J - 1] = 1.0
-
-        # constant arterial blood pressure at the skull
-        A[2 * J - 1, 2 * J - 1] = 1.0
-        b[2 * J - 1] = self.p_bpA
-
-        # no capillary flow at the skull
-        A[3 * J - 1, 3 * J - 2] = -1.0
-        A[3 * J - 1, 3 * J - 1] = 1.0
-
-        # CSF pressure at skull
-        A[4 * J - 1, 4 * J - 1] = 1.0
-        b[4 * J - 1] = self.p_bp + self.mu_e * self.R * self.Q_o
-
-        # constant venous blood pressure at the skull
-        A[5 * J - 1, 5 * J - 1] = 1.0
-        b[5 * J - 1] = self.p_bp
-
-        # stress equilibrium in the ventricle wall
-        A[0, 0] = 2. * self.nu / r[0] - (1. - self.nu) / dr
-        A[0, 1] = (1. - self.nu) / dr
-        stress_multiplier = (1. + self.nu) * (1. - 2. * self.nu) / self.E
-        A[0, 1 * J] = (1. - self.A_a) * stress_multiplier
-        A[0, 2 * J] = (1. - self.A_c) * stress_multiplier
-        A[0, 3 * J] = (1. - self.A_e) * stress_multiplier
-        A[0, 4 * J] = (1. - self.A_v) * stress_multiplier
-
-        # no arteriol blood flow into ventricles
-        A[J, J] = -1.0
-        A[J, J + 1] = 1.0
-
-        # capillary blood flow into ventricles
-        A[2 * J, 2 * J] = -1.0
-        A[2 * J, 2 * J + 1] = 1.0
-        b[2 * J] = self.mu_a * dr * self.Q_p / self.k_ce
-
-        # venous blood flow into ventricles
-        A[4 * J, 4 * J] = -1.0
-        A[4 * J, 4 * J + 1] = 1.0
-
-    def _update_time_dependent_system(self):
-        # == build the A matrix ==
-        J = self.J
-        dr = self.dr
-        r = self.r
-        x = self.x
-        b = self.b
-        A = self.A
+        A[1:J - 1, 1:J - 1] -= np.diag(2. / (central_r * central_r), 0)
 
         # ---
         # set transfer fluxes
@@ -233,24 +155,68 @@ class FourCompartmentMPET(object):
         # venous pressure equation
         b[4 * J + 1:5 * J - 1] = (-sDot_cv - sDot_ev) / self.kappa_v
 
-        # # ---
-        # # set transfer fluxes
-        # for i in range(1, J - 1):
-        #     sDot_ac = self.gamma_ac * np.fabs(x[i + 1 * J] - x[i + 2 * J])
-        #     sDot_ce = self.gamma_ce * np.fabs(x[i + 2 * J] - x[i + 3 * J])
-        #     sDot_cv = self.gamma_cv * np.fabs(x[i + 2 * J] - x[i + 4 * J])
-        #     sDot_ev = self.gamma_ev * np.fabs(x[i + 3 * J] - x[i + 4 * J])
-        #     # arteriol pressure equation
-        #     b[J + i] = sDot_ac / self.kappa_a
-        #     # capillary pressure equation
-        #     b[2 * J + i] = (-sDot_ac + sDot_ce + sDot_cv) / self.kappa_c
-        #     # CSF pressure equation
-        #     b[3 * J + i] = (-sDot_ce + sDot_ev) / self.kappa_e
-        #     # venous pressure equation
-        #     b[4 * J + i] = (-sDot_cv - sDot_ev) / self.kappa_v
+        # ---
+        # set up the poro diagonals
+        strain_multiplier = (1.0 - 2.0 * self.nu) / (4.0 * self.G * (1.0 - self.nu) * dr)
+        displacement_tridiagonal = (np.eye(J, k=-1) - np.eye(J, k=1)) * strain_multiplier
+        displacement_tridiagonal[0, :] = 0.0
+        displacement_tridiagonal[-1, :] = 0.0
+        A[:J, 1 * J:2 * J] = displacement_tridiagonal * self.A_a
+        A[:J, 2 * J:3 * J] = displacement_tridiagonal * self.A_c
+        A[:J, 3 * J:4 * J] = displacement_tridiagonal * self.A_e
+        A[:J, 4 * J:5 * J] = displacement_tridiagonal * self.A_v
 
         # ---
         # Boundary Conditions
+
+        # no displacement at skull
+        A[J - 1, J - 1] = 1.0
+        b[J - 1] = 0.0
+
+        # constant arterial blood pressure at the skull
+        A[2 * J - 1, 2 * J - 1] = 1.0
+        b[2 * J - 1] = self.p_bpA
+
+        # no capillary flow at the skull
+        A[3 * J - 1, 3 * J - 2] = -1.0
+        A[3 * J - 1, 3 * J - 1] = 1.0
+        b[3 * J - 1] = 0.0
+
+        # CSF pressure at skull
+        A[4 * J - 1, 4 * J - 1] = 1.0
+        b[4 * J - 1] = self.p_bp + self.mu_e * self.R * self.Q_o
+
+        # constant venous blood pressure at the skull
+        A[5 * J - 1, 5 * J - 1] = 1.0
+        b[5 * J - 1] = self.p_bp
+
+        # stress equilibrium in the ventricle wall
+        A[0, 0] = (2. * self.nu / r[0] - (1. - self.nu) / dr)
+        A[0, 1] = (1. - self.nu) / dr
+        b[0] = 0.0
+        stress_multiplier = (1. + self.nu) * (1. - 2. * self.nu) / self.E
+        A[0, 1 * J] = (1. - self.A_a) * stress_multiplier
+        A[0, 2 * J] = (1. - self.A_c) * stress_multiplier
+        A[0, 3 * J] = (1. - self.A_e) * stress_multiplier
+        A[0, 4 * J] = (1. - self.A_v) * stress_multiplier
+
+        # no arteriol blood flow into ventricles
+        A[J, J] = -1.0
+        A[J, J + 1] = 1.0
+        b[J] = 0.0
+
+        # capillary blood flow into ventricles
+        A[2 * J, 2 * J] = -1.0
+        A[2 * J, 2 * J + 1] = 1.0
+        b[2 * J] = self.mu_a * dr * self.Q_p / self.k_ce
+
+        # venous blood flow into ventricles
+        A[4 * J, 4 * J] = -1.0
+        A[4 * J, 4 * J + 1] = 1.0
+        b[4 * J] = 0.0
+
+        # ---
+        # Transient Boundary Conditions
         d2 = self.d ** 2
         d4 = d2 * d2
         const_1 = np.pi * d4 / (128. * self.mu_e * self.L)
@@ -261,6 +227,19 @@ class FourCompartmentMPET(object):
         A[3 * J, 3 * J + 1] = -const_2 * self.kappa_e / dr
         A[3 * J, 4 * J - 1] = -const_1
         b[3 * J] = self.Q_p + const_2 * x[0] / self.dt
+
+        # ---
+        # Scale to better condition the problem
+        for i in range(self.b.shape[0]):
+            A_max = np.amax(self.A[i, :])
+            A_min = np.amin(self.A[i, :])
+            scale = 1.0 / (A_max - A_min)
+            self.A[i, :] *= scale
+            self.b[i] *= scale
+        # plt.imshow(self.A, interpolation='nearest')
+        # plt.colorbar()
+        # plt.show()
+        # plt.clf()
 
     def _save_wall_file(self):
         with open(self.wall_file_name, "w") as f:
@@ -306,68 +285,25 @@ class FourCompartmentMPET(object):
         if self.save_transient:
             self._create_transient_file()
 
-        self._initialise_system()
-
-        run_successful = True
         for i in range(self.N):
             self.t = self.t0 + i * self.dt
-            self._update_time_dependent_system()
 
-            solver_type = 0
-
-            if solver_type == 0:
-                self.x = np.linalg.solve(self.A, self.b)
-
-            elif solver_type == 1:
-                # Jacobian preconditioner
-                P = np.linalg.inv(np.diag(np.diag(self.A)))
-                y = np.linalg.solve(np.dot(self.A, np.linalg.inv(P)), self.b)
-                self.x = np.linalg.solve(P, y)
-
-            elif solver_type == 2:
-                U, s, V = np.linalg.svd(self.A, full_matrices=True)
-                s = np.diag(s)
-                # solving with preconditioning by U from svd
-                self.x = np.linalg.solve(np.dot(s, V), np.dot(np.transpose(U), self.b))
-
-            elif solver_type == 3:
-                import scipy.sparse.linalg as spsl
-                self.x = spsl.spsolve(self.A, self.b)
-
-            elif solver_type == 4:
-                import scipy.sparse.linalg as spsl
-                self.x = spsl.lsqr(self.A, self.b)[0]
-
-            elif solver_type == 5:
-                import scipy.sparse.linalg as spsl
-                # __all__ = ['bicg','bicgstab','cg','cgs','gmres','qmr']
-                M = np.linalg.inv(np.diag(np.diag(self.A)))
-                # M = np.linalg.inv(self.A)
-                # self.x, info = spsl.bicg(self.A, self.b, M=M)
-                self.x, info = spsl.bicgstab(self.A, self.b, M=M)
-                print info
-
-            elif solver_type == 6:
-                r0 = self.b - np.dot(self.A, self.x)
-                dx = np.linalg.solve(self.A, r0)
-                self.x += dx
-
-            else:
-                raise RuntimeError("Invalid solver type")
-
+            self._build_system()
+            self.x = spsl.spsolve(sps.csc_matrix(self.A), self.b)
             self.residual = np.dot(self.A, self.x) - self.b
 
             if self.debug_print:
                 relative_error = np.linalg.norm(self.residual) / np.linalg.norm(self.b)  # norm() is L2 norm
-                print "Current time:", self.t, " sec. The relative error is:", relative_error
+                print self.base_name,
+                print "- Current time:", self.t, " sec. The relative error is:", relative_error
 
             if self.save_transient:
                 self._save_transient_file()
 
             if self.x[0] > 1e5:
                 # simulation is getting too big... cancel solution
-                run_successful = False
                 break
 
-        if self.save_wall and run_successful:
+        if self.save_wall:
             self._save_wall_file()
+
