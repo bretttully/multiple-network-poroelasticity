@@ -26,20 +26,19 @@ from mpet import profiling
 
 
 def run(run_pure_python=False, run_profiling=False):
-    grid_spacing = 81
-    secs_in_day = 86400
+    grid_spacing = 251
+    secs_in_day = 86400.0
     initial_time = 0.0
-    final_time = 1.0 * secs_in_day
-    num_steps = 100
-    dt = (final_time - initial_time) / num_steps
-    write_transient = False
+    num_steps = 864
+    dt = secs_in_day / num_steps
+    write_transient = True
     write_wall = True
     base_name = "example"
     if run_pure_python:
         base_name += "_python"
     else:
         base_name += "_cpp"
-    debug_print = False
+    debug_print = True
 
     opts = FourCompartmentPoroOptions()
     # arteriol constants
@@ -67,6 +66,9 @@ def run(run_pure_python=False, run_profiling=False):
     opts.gamma_cv = 1.5e-19
     opts.gamma_ev = 1.0e-13
 
+    # aqueduct diameter
+    opts.aqueduct_diameter = 4e-3#0.25e-3#  # m (assume a blocked aqueduct 0.25mm)
+
     prof_prefix = os.path.join(os.getcwd(), base_name)
     if run_profiling:
         profiling.start(prof_prefix,
@@ -74,10 +76,10 @@ def run(run_pure_python=False, run_profiling=False):
                         cpu_profile_freq=1000)
 
     if run_pure_python:
-        s = PythonSolver(grid_spacing, initial_time, final_time, dt,
+        s = PythonSolver(grid_spacing, initial_time, num_steps, dt,
                          write_transient, write_wall, debug_print, base_name, opts)
     else:
-        s = CPPSolver(grid_spacing, initial_time, final_time, dt,
+        s = CPPSolver(grid_spacing, initial_time, num_steps, dt,
                       write_transient, write_wall, debug_print, base_name, opts)
     s.solve()
 
@@ -119,11 +121,16 @@ if __name__ == "__main__":
     # print "C++:"
     # print timeit.timeit("from simple import run; run(run_pure_python=False)", number=10)
 
-    import multiprocessing as mp
     import matplotlib.pyplot as plt
     import numpy as np
-    pool = mp.Pool(processes=mp.cpu_count())
-    pool.map(run, [True, False])
+    if True:
+        import multiprocessing as mp
+        pool = mp.Pool(processes=mp.cpu_count())
+        pool.map(run, [True, False])
+    else:
+        run(run_pure_python=True)
+        run(run_pure_python=False)
+
     p = np.genfromtxt("example_python_wall.dat", skiprows=1, delimiter=", ")
     c = np.genfromtxt("example_cpp_wall.dat", skiprows=1, delimiter=", ")
     plots = list()

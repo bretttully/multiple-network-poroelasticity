@@ -49,6 +49,9 @@ public:
     double gammaCV;
     double gammaEV;
 
+    // aqueduct diameter
+    double aqueductDiameter;
+
     /**
      * Write the object to a stream
      *
@@ -82,7 +85,9 @@ public:
                   << std::endl << "  - gamma_ac: " << rhs.gammaAC
                   << std::endl << "  - gamma_ce: " << rhs.gammaCE
                   << std::endl << "  - gamma_cv: " << rhs.gammaCV
-                  << std::endl << "  - gamma_ev: " << rhs.gammaEV;
+                  << std::endl << "  - gamma_ev: " << rhs.gammaEV
+                  << std::endl << " Geometric properties:"
+                  << std::endl << "  - aqu diam: " << rhs.aqueductDiameter;
     }
 };
 
@@ -93,7 +98,7 @@ public:
     FourCompartmentPoro (
             int grid_size,
             double initial_time,
-            double final_time,
+            int num_steps,
             double dtSecs,
             bool saveTransientToFile,
             bool saveWallToFile,
@@ -172,7 +177,6 @@ private:
 
     // time control
     double dt;
-    double tf;
     double t0;
     double t;
     int N;
@@ -194,8 +198,7 @@ private:
     bool mDebugPrint;
 
     // ************ private methods ************** //
-    void initialiseSystem();
-    void updateTimeDependentSystem();
+    void buildSystem();
     void saveWallData() const;
     void createTransientDataFile() const;
     void saveTransientData() const;

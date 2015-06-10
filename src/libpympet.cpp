@@ -49,11 +49,13 @@ BOOST_PYTHON_MODULE(libpympet) {
         .def_readwrite("gamma_ce", &mpet::FourCompartmentPoroOptions::gammaCE)
         .def_readwrite("gamma_cv", &mpet::FourCompartmentPoroOptions::gammaCV)
         .def_readwrite("gamma_ev", &mpet::FourCompartmentPoroOptions::gammaEV)
+        // geometric properties
+        .def_readwrite("aqueduct_diameter", &mpet::FourCompartmentPoroOptions::aqueductDiameter)
 //        .def_pickle(ns::controllerResultPickleSuite())
         ;
 
     class_<mpet::FourCompartmentPoro>("FourCompartmentPoro",
-                                      init<int, double, double, double,
+                                      init<int, double, int, double,
                                            bool, bool, bool, std::string,
                                            const mpet::FourCompartmentPoroOptions&>())
         .def("solve", &mpet::FourCompartmentPoro::solve)
