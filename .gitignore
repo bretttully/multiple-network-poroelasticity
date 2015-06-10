@@ -19,6 +19,7 @@
 *.lib
 
 # IDE preferences
+.idea
 CMakeLists.txt.user
 
 # build remnants

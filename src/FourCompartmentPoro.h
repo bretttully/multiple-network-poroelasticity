@@ -179,9 +179,10 @@ private:
 
     // solution properties
     static const int numElements = 5; // U, Pa, Pc, Pe, Pv
-    Eigen::VectorXd x;
-    Eigen::VectorXd b;
-    Eigen::MatrixXd A;
+    Eigen::VectorXd x; // LHS (solution) vector
+    Eigen::VectorXd b; // RHS vector
+    Eigen::MatrixXd A; // Derivative matrix
+    Eigen::VectorXd residual; // r = A*x - b
 
     // output file constants
     std::string baseName;
@@ -193,17 +194,8 @@ private:
     bool mDebugPrint;
 
     // ************ private methods ************** //
-    void setMaterialConstants();
-    void setGridConstants(
-        int m
-        );
-    void setTimeConstants(
-        double initialTime,
-        double finalTime,
-        double dtSecs
-        );
-    void initializeSystem();
-    void buildSystem();
+    void initialiseSystem();
+    void updateTimeDependentSystem();
     void saveWallData() const;
     void createTransientDataFile() const;
     void saveTransientData() const;

@@ -30,7 +30,8 @@ def run(run_pure_python=False, run_profiling=False):
     secs_in_day = 86400
     initial_time = 0.0
     final_time = 1.0 * secs_in_day
-    dt = 100.0
+    num_steps = 100
+    dt = (final_time - initial_time) / num_steps
     write_transient = False
     write_wall = True
     base_name = "example"
@@ -38,7 +39,7 @@ def run(run_pure_python=False, run_profiling=False):
         base_name += "_python"
     else:
         base_name += "_cpp"
-    debug_print = True
+    debug_print = False
 
     opts = FourCompartmentPoroOptions()
     # arteriol constants
@@ -118,12 +119,28 @@ if __name__ == "__main__":
     # print "C++:"
     # print timeit.timeit("from simple import run; run(run_pure_python=False)", number=10)
 
-    run(run_pure_python=True)
-    run(run_pure_python=False)
+    import multiprocessing as mp
     import matplotlib.pyplot as plt
     import numpy as np
+    pool = mp.Pool(processes=mp.cpu_count())
+    pool.map(run, [True, False])
     p = np.genfromtxt("example_python_wall.dat", skiprows=1, delimiter=", ")
     c = np.genfromtxt("example_cpp_wall.dat", skiprows=1, delimiter=", ")
-    plt.plot(p[:, 0], p[:, 1], 'b-')
-    plt.plot(c[:, 0], c[:, 1], 'r-')
+    plots = list()
+    plots.append("Displacement")
+    plots.append("Pressure: Art")
+    plots.append("Pressure: Cap")
+    plots.append("Pressure: CSF")
+    plots.append("Pressure: Ven")
+    num_plots = len(plots)
+    for plt_idx, title in enumerate(plots):
+        plt.subplot(2, num_plots, plt_idx + 1)
+        plt.title(title)
+        plt.plot(p[:, 0], p[:, plt_idx + 1], 'b-', label="Python")
+        plt.plot(c[:, 0], c[:, plt_idx + 1], 'r-', label="C++")
+        if plt_idx == 0:
+            plt.legend()
+        plt.subplot(2, num_plots, plt_idx + 1 + num_plots)
+        plt.plot(p[:, 0], p[:, plt_idx + 6], 'bo')
+        plt.plot(c[:, 0], c[:, plt_idx + 6], 'ro')
     plt.show()

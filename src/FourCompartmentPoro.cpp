@@ -18,6 +18,7 @@
  * limitations under the License.
  */
 #include "FourCompartmentPoro.h"
+#include <eigen3/Eigen/Sparse>
 
 namespace mpet
 {
@@ -105,8 +106,8 @@ FourCompartmentPoro(
     p_bpA   = 13.3e3;     // N/m^2 arterial blood pressure (100mmHg)
 
     // grid properties
-    J       = grid_size;        // number of grid points
-    dr      = L / (J - 1);  // grid spacing
+    J       = grid_size;          // number of grid points
+    dr      = L / (J - 1);        // grid spacing
     r       = Eigen::VectorXd(J); // radius vector
     for (int i = 0; i < J; ++i) {
         r[i] = rV + i * dr;
@@ -114,165 +115,168 @@ FourCompartmentPoro(
     x = Eigen::VectorXd(numElements * J);                 // LHS (solution) vector
     b = Eigen::VectorXd(numElements * J);                 // RHS vector
     A = Eigen::MatrixXd(numElements * J,numElements * J); // Derivative matrix
+    residual = Eigen::VectorXd(numElements * J);          // r = A*x - b
     x.setZero();
     b.setZero();
     A.setZero();
+    residual.setZero();
 
     // simulation properties
-    dt      = dtSecs;                  // time step size
-    tf      = final_time;          // final solution time
-    t0      = initial_time;           // initial time
-    t       = t0;                       // current time
+    dt      = dtSecs;                             // time step size
+    tf      = final_time;                         // final solution time
+    t0      = initial_time;                       // initial time
+    t       = t0;                                 // current time
     N       = int((tf - t0 + dt / 10.) / dt) + 1; // number of time steps
 }
 
 void
 FourCompartmentPoro::
-buildSystem()
+initialiseSystem()
+{
+    // == build the A matrix ==== //
+    double oneOverDrSquared = 1.0 / (dr * dr);
+    double strainMultiplier = (1.0 - 2.0 * nu) / (4.0 * G * (1.0 - nu) * dr);
+    for (int i = 1; i < J - 1; ++i) {
+        double displacementMultiplierMinus = oneOverDrSquared - 1. / (r[i] * dr);
+        double displacementMultiplierCenter = -2. * oneOverDrSquared;
+        double displacementMultiplierPlus = oneOverDrSquared + 1. / (r[i] * dr);
+
+        // n = 0: Displacement equation
+        // n = 1: arteriol pressure equation
+        // n = 2: capillary pressure equation
+        // n = 3: CSF pressure equation
+        // n = 4: venous pressure equation
+        for (int n = 0; n < 5; ++n) {
+            A(n * J + i, n * J + i - 1) = displacementMultiplierMinus;
+            A(n * J + i, n * J + i) = displacementMultiplierCenter;
+            A(n * J + i, n * J + i + 1) = displacementMultiplierPlus;
+        }
+
+        // update displacement equation
+        A(i, i) -= 2.0 / std::pow(r[i], 2);
+
+        // section 2
+        A(i, J + i - 1) = strainMultiplier * A_a;
+        A(i, J + i + 1) = -strainMultiplier * A_a;
+        // section 3
+        A(i, 2 * J + i - 1) = strainMultiplier * A_c;
+        A(i, 2 * J + i + 1) = -strainMultiplier * A_c;
+        // section 4
+        A(i, 3 * J + i - 1) = strainMultiplier * A_e;
+        A(i, 3 * J + i + 1) = -strainMultiplier * A_e;
+        // section 5
+        A(i, 4 * J + i - 1) = strainMultiplier * A_v;
+        A(i, 4 * J + i + 1) = -strainMultiplier * A_v;
+    }
+
+    // ---
+    // Boundary Conditions
+
+    // no displacement at skull
+    A(J - 1, J - 1) = 1.0;
+
+    // constant arterial blood pressure at the skull
+    A(2 * J - 1, 2 * J - 1) = 1.0;
+    b[2 * J - 1] = p_bpA;
+
+    // no capillary flow at the skull
+    A(3 * J - 1, 3 * J - 2) = -1.0;
+    A(3 * J - 1, 3 * J - 1) = 1.0;
+
+    // CSF pressure at skull
+    A(4 * J - 1, 4 * J - 1) = 1.0;
+    b[4 * J - 1] = p_bp + mu_e * R * Q_o;
+
+    // constant venous blood pressure at the skull
+    A(5 * J - 1, 5 * J - 1) = 1.0;
+    b[5 * J - 1] = p_bp;
+
+    // stress equilibrium in the ventricle wall
+    A(0, 0) = 2.0 * nu / r[0] - (1.0 - nu) / dr;
+    A(0, 1) = (1.0 - nu) / dr;
+    double stressMultiplier = (1.0 + nu) * (1.0 - 2.0 * nu) / E;
+    A(0, 1 * J) = (1. - A_a) * stressMultiplier;
+    A(0, 2 * J) = (1. - A_c) * stressMultiplier;
+    A(0, 3 * J) = (1. - A_e) * stressMultiplier;
+    A(0, 4 * J) = (1. - A_v) * stressMultiplier;
+
+    // no arteriol blood flow into ventricles
+    A(J, J) = -1.0;
+    A(J, J + 1) = 1.0;
+
+    // capillary blood flow into ventricles
+    A(2 * J, 2 * J) = -1.0;
+    A(2 * J, 2 * J + 1) = 1.0;
+    b[2 * J] = mu_a * dr * Q_p / k_ce;
+
+    // venous blood flow into ventricles
+    A(4 * J, 4 * J) = -1.0;
+    A(4 * J, 4 * J + 1) = 1.0;
+}
+
+void
+FourCompartmentPoro::
+updateTimeDependentSystem()
 {
     // == build the A matrix ==== //
     double sDot_ac, sDot_ce, sDot_cv, sDot_ev;
     for (int i = 1; i < J - 1; ++i) {
         // set transfer fluxes
-        sDot_ac = gamma_ac * abs(x[i + J] - x[i + 2 * J]);
-        sDot_ce = gamma_ce * abs(x[i + 2 * J] - x[i + 3 * J]);
-        sDot_cv = gamma_cv * abs(x[i + 2 * J] - x[i + 4 * J]);
-        sDot_ev = gamma_ev * abs(x[i + 3 * J] - x[i + 4 * J]);
+        sDot_ac = gamma_ac * std::fabs(x[i + 1 * J] - x[i + 2 * J]);
+        sDot_ce = gamma_ce * std::fabs(x[i + 2 * J] - x[i + 3 * J]);
+        sDot_cv = gamma_cv * std::fabs(x[i + 2 * J] - x[i + 4 * J]);
+        sDot_ev = gamma_ev * std::fabs(x[i + 3 * J] - x[i + 4 * J]);
 
-        // ** Displacement equation
-        // section 1
-        A(i, i - 1)        = 1. / pow(dr,2) - 1. / r[i] / dr;
-        A(i, i)          = -2. / pow(dr,2) - 2. / pow(r[i],2);
-        A(i, i + 1)        = 1. / pow(dr,2) + 1. / r[i] / dr;
-        // section 2
-        A(i, J + i - 1)      = (1. - 2. * nu) * A_a / 4. / G / (1 - nu) / dr;
-        A(i, J + i + 1)      = -(1. - 2. * nu) * A_a / 4. / G / (1 - nu) / dr;
-        // section 3
-        A(i, 2 * J + i - 1)    = (1. - 2. * nu) * A_c / 4. / G / (1 - nu) / dr;
-        A(i, 2 * J + i + 1)    = -(1. - 2. * nu) * A_c / 4. / G / (1 - nu) / dr;
-        // section 4
-        A(i, 3 * J + i - 1)    = (1. - 2. * nu) * A_e / 4. / G / (1 - nu) / dr;
-        A(i, 3 * J + i + 1)    = -(1. - 2. * nu) * A_e / 4. / G / (1 - nu) / dr;
-        // section 5
-        A(i, 4 * J + i - 1)    = (1. - 2. * nu) * A_v / 4. / G / (1 - nu) / dr;
-        A(i, 4 * J + i + 1)    = -(1. - 2. * nu) * A_v / 4. / G / (1 - nu) / dr;
-
-        // ** arteriol pressure equation
-        // section 5
-        // section 6
-        A(J + i, J + i - 1)    = 1. / pow(dr,2) - 1. / r[i] / dr;
-        A(J + i, J + i)      = -2. / pow(dr,2);
-        A(J + i, J + i + 1)    = 1. / pow(dr,2) + 1. / r[i] / dr;
-        // section 7
-        // section 8
-        // b vector
-        b[J + i]           = 1. / kappa_a * (sDot_ac);
-
-        // ** capillary pressure equation
-        // section 5
-        // section 6
-        A(2 * J + i, 2 * J + i - 1) = 1. / pow(dr,2) - 1. / r[i] / dr;
-        A(2 * J + i, 2 * J + i)  = -2. / pow(dr,2);
-        A(2 * J + i, 2 * J + i + 1) = 1. / pow(dr,2) + 1. / r[i] / dr;
-        // section 7
-        // section 8
-        // b vector
-        b[2 * J + i]         = 1. / kappa_c * (-sDot_ac + sDot_ce + sDot_cv);
-
-        // ** CSF pressure equation
-        // section 9
-        // section 10
-        // section 11
-        A(3 * J + i, 3 * J + i - 1) = 1. / pow(dr,2) - 1. / r[i] / dr;
-        A(3 * J + i, 3 * J + i)  = -2. / pow(dr,2);
-        A(3 * J + i, 3 * J + i + 1) = 1. / pow(dr,2) + 1. / r[i] / dr;
-        // section 12
-        // b vector
-        b[3 * J + i]         = 1. / kappa_e * (-sDot_ce + sDot_ev);
-
-        // ** venous pressure equation
-        // section 13
-        // section 14
-        // section 15
-        // section 16
-        A(4 * J + i, 4 * J + i - 1) = 1. / pow(dr,2) - 1. / r[i] / dr;
-        A(4 * J + i, 4 * J + i)  = -2. / pow(dr,2);
-        A(4 * J + i, 4 * J + i + 1) = 1. / pow(dr,2) + 1. / r[i] / dr;
-        // b vector
-        b[4 * J + i]         = 1. / kappa_v * (-sDot_cv - sDot_ev);
+        // arteriol pressure equation
+        b[J + i] = (sDot_ac) / kappa_a;
+        // capillary pressure equation
+        b[2 * J + i] = (-sDot_ac + sDot_ce + sDot_cv) / kappa_c;
+        // CSF pressure equation
+        b[3 * J + i] = (-sDot_ce + sDot_ev) / kappa_e;
+        // venous pressure equation
+        b[4 * J + i] = (-sDot_cv - sDot_ev) / kappa_v;
     }
 
     // Boundary Conditions
 
-    // no displacement at skull
-    A(J - 1, J - 1)          = 1.;
-
-    // constant arterial blood pressure at the skull
-    A(2 * J - 1, 2 * J - 1)      = 1.;
-    b[2 * J - 1]             = p_bpA;
-
-    // no capillary flow at the skull
-    A(3 * J - 1, 3 * J - 2)      = -1.;
-    A(3 * J - 1, 3 * J - 1)      = 1.;
-
-    // CSF pressure at skull
-    A(4 * J - 1, 4 * J - 1)      = 1.;
-    b[4 * J - 1]             = p_bp + mu_e * R * Q_o;
-
-    // constant venous blood pressure at the skull
-    A(5 * J - 1, 5 * J - 1)      = 1.;
-    b[5 * J - 1]             = p_bp;
-
-    // stress equilibrium in the ventricle wall
-    A(0, 0)              = 2. * nu / r[0] - (1. - nu) / dr;
-    A(0, 1)              = (1. - nu) / dr;
-    A(0, J)              = (1. - A_a) * (1. + nu) * (1. - 2. * nu) / E;
-    A(0, 2 * J)            = (1. - A_c) * (1. + nu) * (1. - 2. * nu) / E;
-    A(0, 3 * J)            = (1. - A_e) * (1. + nu) * (1. - 2. * nu) / E;
-    A(0, 4 * J)            = (1. - A_v) * (1. + nu) * (1. - 2. * nu) / E;
-
-    // no arteriol blood flow into ventricles
-    A(J, J)              = -1.;
-    A(J, J + 1)            = 1.;
-
-    // capillary blood flow into ventricles
-    A(2 * J, 2 * J)          = -1.;
-    A(2 * J, 2 * J + 1)        = 1.;
-    b[2 * J]               = mu_a * dr * Q_p / k_ce;
-
     // conservation of mass in ventricle
-    A(3 * J, 0)            = 4.* M_PI* pow(r[0] + x[0],2) / dt;
-    A(3 * J, 3 *
-      J)          = M_PI * pow(d,4) / 128. / mu_e / L + 4.* M_PI* kappa_e* pow(
-        r[0] + x[0],
-        2) / dr;
-    A(3 * J, 3 * J + 1)        = -4.* M_PI* kappa_e* pow(r[0] + x[0],2) / dr;
-    A(3 * J, 4 * J - 1)        = -M_PI* pow(d,4) / 128. / mu_e / L;
-    b[3 * J]               = Q_p + 4.* M_PI* pow(r[0] + x[0],2) * x[0] / dt;
-
-    // venous blood flow into ventricles
-    A(4 * J, 4 * J)          = -1.;
-    A(4 * J, 4 * J + 1)        = 1.;
+    double d2 = d * d;
+    double d4 = d2 * d2;
+    double const_1 = M_PI * d4 / (128. * mu_e * L);
+    double const_2 = 4.0 * M_PI * (r[0] + x[0]) * (r[0] + x[0]);
+    A(3 * J, 0) = const_2 / dt;
+    A(3 * J, 3 *J) = const_1 + const_2 * kappa_e / dr;
+    A(3 * J, 3 * J + 1) = -const_2 * kappa_e / dr;
+    A(3 * J, 4 * J - 1) = -const_1;
+    b[3 * J] = Q_p + const_2 * x[0] / dt;
 }
 
 void
 FourCompartmentPoro::
 saveWallData() const
 {
-    std::ofstream wallFile( wallFileName.c_str());
-    wallFile.precision(6);
-    wallFile.setf(std::ios::scientific, std::ios::floatfield);
-    wallFile << "r, u, p_a, p_c, p_e, p_v" << std::endl;
+    std::ofstream fs(wallFileName.c_str());
+    fs.precision(6);
+    fs.setf(std::ios::scientific, std::ios::floatfield);
+    fs << "r, u, p_a, p_c, p_e, p_v"
+       << "u_res, p_a_res, p_c_res, p_e_res, p_v_res"
+       << std::endl;
     int i;
     for ( i = 0; i < J; i++ ) {
-        wallFile << r[i] << ", ";
-        wallFile << x[i] << ", ";
-        wallFile << x[i + J] << ", ";
-        wallFile << x[i + 2 * J] << ", ";
-        wallFile << x[i + 3 * J]  << ", ";
-        wallFile << x[i + 4 * J] << std::endl;
+        fs << r[i];
+        fs << ", " << x[i + 0 * J];
+        fs << ", " << x[i + 1 * J];
+        fs << ", " << x[i + 2 * J];
+        fs << ", " << x[i + 3 * J];
+        fs << ", " << x[i + 4 * J];
+        fs << ", " << residual[i + 0 * J];
+        fs << ", " << residual[i + 1 * J];
+        fs << ", " << residual[i + 2 * J];
+        fs << ", " << residual[i + 3 * J];
+        fs << ", " << residual[i + 4 * J];
+        fs << std::endl;
     }
-    wallFile.close();
+    fs.close();
 }
 
 void
@@ -281,7 +285,9 @@ createTransientDataFile() const
 {
     std::ofstream fs;
     fs.open(transientFileName.c_str(), std::fstream::out );
-    fs << "T, U, Pa, Pc, Pe, Pv" << std::endl;
+    fs << "T, U, Pa, Pc, Pe, Pv, "
+       << "U_res, Pa_res, Pc_res, Pe_res, Pv_res"
+       << std::endl;
     fs.close();
 }
 
@@ -292,13 +298,19 @@ saveTransientData() const
     std::ofstream fs;
     fs.open( transientFileName.c_str(), std::fstream::app );
     fs.precision(10);
-    fs << t / 24. / 60. / 60. << ", ";
+    fs << t / 24. / 60. / 60.;
     fs.precision(6);
-    fs << x[0] << ", ";
-    fs << x[J] << ", ";
-    fs << x[2 * J] << ", ";
-    fs << x[3 * J] <<  ", ";
-    fs << x[4 * J] << std::endl;
+    fs << ", " << x[0 * J];
+    fs << ", " << x[1 * J];
+    fs << ", " << x[2 * J];
+    fs << ", " << x[3 * J];
+    fs << ", " << x[4 * J];
+    fs << ", " << residual[0 * J];
+    fs << ", " << residual[1 * J];
+    fs << ", " << residual[2 * J];
+    fs << ", " << residual[3 * J];
+    fs << ", " << residual[4 * J];
+    fs << std::endl;
     fs.close();
 }
 
@@ -310,16 +322,24 @@ solve()
         createTransientDataFile();
     }
 
+    initialiseSystem();
+
     bool simulationFailed = false;
     for (int i = 0; !simulationFailed && i < N; ++i) {
         t = t0 + i * dt;
-        buildSystem();
+        updateTimeDependentSystem();
+
+//        using SpMat = Eigen::SparseMatrix<double>;
+//        SpMat sparseA = A.sparseView();
+//        Eigen::SimplicialCholesky<SpMat> chol(sparseA);  // performs a Cholesky factorization of A
+//        x = chol.solve(b);         // use the factorization to solve for the given
 
         x = A.lu().solve(b);
 //        x = A.householderQr().solve(b);
+        residual = A * x - b;
 
         if (mDebugPrint) {
-            double relative_error = (A*x - b).norm() / b.norm(); // norm() is L2 norm
+            double relative_error = residual.norm() / b.norm(); // norm() is L2 norm
             std::cout << "Current time: " << t << " sec. The relative error is: " << relative_error << std::endl;
         }
 

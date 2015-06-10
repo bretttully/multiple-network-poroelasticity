@@ -101,6 +101,7 @@ class FourCompartmentMPET(object):
         self.x = None  # LHS (solution) vector
         self.b = None  # RHS vector
         self.A = None  # Derivative matrix
+        self.residual = None  # residual = A*x - b
 
         # output file constants
         self.base_name = base_name
@@ -131,9 +132,9 @@ class FourCompartmentMPET(object):
         r = self.r
         central_r = self.r[1:-1]
         # set up the difference tridiagonals
-        difference_eye_minus = np.diag(1. / dr2 - 1. / (r[:-1] * dr), -1)
+        difference_eye_minus = np.diag(1. / dr2 - 1. / (r[1:] * dr), -1)
         difference_eye_central = np.eye(J, k=0) * (-2.0 / dr2)
-        difference_eye_plus = np.diag(1. / dr2 + 1. / (r[1:] * dr), 1)
+        difference_eye_plus = np.diag(1. / dr2 + 1. / (r[:-1] * dr), 1)
         difference_tridiagonal = difference_eye_minus + difference_eye_central + difference_eye_plus
         difference_tridiagonal[0, :] = 0.0
         difference_tridiagonal[-1, :] = 0.0
@@ -148,8 +149,8 @@ class FourCompartmentMPET(object):
         A = self.A
         # ---
         # set up the poro diagonals
-        stiffness_multiplier = (1.0 - 2.0 * self.nu) / (4.0 * self.G * (1.0 - self.nu) * dr)
-        displacement_tridiagonal = (np.eye(J, k=-1) - np.eye(J, k=1)) * stiffness_multiplier
+        strain_multiplier = (1.0 - 2.0 * self.nu) / (4.0 * self.G * (1.0 - self.nu) * dr)
+        displacement_tridiagonal = (np.eye(J, k=-1) - np.eye(J, k=1)) * strain_multiplier
         displacement_tridiagonal[0, :] = 0.0
         displacement_tridiagonal[-1, :] = 0.0
         A[:J, 1 * J:2 * J] = displacement_tridiagonal * self.A_a
@@ -218,11 +219,11 @@ class FourCompartmentMPET(object):
         A = self.A
 
         # ---
-        # ** Pressure equations
-        sDot_ac = self.gamma_ac * np.abs(x[0 * J + 1:1 * J - 1] - x[1 * J + 1:2 * J - 1])
-        sDot_ce = self.gamma_ce * np.abs(x[2 * J + 1:3 * J - 1] - x[3 * J + 1:4 * J - 1])
-        sDot_cv = self.gamma_cv * np.abs(x[2 * J + 1:3 * J - 1] - x[4 * J + 1:5 * J - 1])
-        sDot_ev = self.gamma_ev * np.abs(x[3 * J + 1:4 * J - 1] - x[4 * J + 1:5 * J - 1])
+        # set transfer fluxes
+        sDot_ac = self.gamma_ac * np.fabs(x[1 * J + 1:2 * J - 1] - x[2 * J + 1:3 * J - 1])
+        sDot_ce = self.gamma_ce * np.fabs(x[2 * J + 1:3 * J - 1] - x[3 * J + 1:4 * J - 1])
+        sDot_cv = self.gamma_cv * np.fabs(x[2 * J + 1:3 * J - 1] - x[4 * J + 1:5 * J - 1])
+        sDot_ev = self.gamma_ev * np.fabs(x[3 * J + 1:4 * J - 1] - x[4 * J + 1:5 * J - 1])
         # arteriol pressure equation
         b[J + 1:2 * J - 1] = sDot_ac / self.kappa_a
         # capillary pressure equation
@@ -232,11 +233,28 @@ class FourCompartmentMPET(object):
         # venous pressure equation
         b[4 * J + 1:5 * J - 1] = (-sDot_cv - sDot_ev) / self.kappa_v
 
+        # # ---
+        # # set transfer fluxes
+        # for i in range(1, J - 1):
+        #     sDot_ac = self.gamma_ac * np.fabs(x[i + 1 * J] - x[i + 2 * J])
+        #     sDot_ce = self.gamma_ce * np.fabs(x[i + 2 * J] - x[i + 3 * J])
+        #     sDot_cv = self.gamma_cv * np.fabs(x[i + 2 * J] - x[i + 4 * J])
+        #     sDot_ev = self.gamma_ev * np.fabs(x[i + 3 * J] - x[i + 4 * J])
+        #     # arteriol pressure equation
+        #     b[J + i] = sDot_ac / self.kappa_a
+        #     # capillary pressure equation
+        #     b[2 * J + i] = (-sDot_ac + sDot_ce + sDot_cv) / self.kappa_c
+        #     # CSF pressure equation
+        #     b[3 * J + i] = (-sDot_ce + sDot_ev) / self.kappa_e
+        #     # venous pressure equation
+        #     b[4 * J + i] = (-sDot_cv - sDot_ev) / self.kappa_v
+
         # ---
         # Boundary Conditions
-        d4 = self.d ** 2 * self.d ** 2
+        d2 = self.d ** 2
+        d4 = d2 * d2
         const_1 = np.pi * d4 / (128. * self.mu_e * self.L)
-        const_2 = 4. * np.pi * np.power(r[0] + x[0], 2)
+        const_2 = 4. * np.pi * (r[0] + x[0]) * (r[0] + x[0])
         # conservation of mass in ventricle
         A[3 * J, 0] = const_2 / self.dt
         A[3 * J, 3 * J] = const_1 + const_2 * self.kappa_e / dr
@@ -246,33 +264,104 @@ class FourCompartmentMPET(object):
 
     def _save_wall_file(self):
         with open(self.wall_file_name, "w") as f:
-            fmt_str = ", ".join(["{:.6e}"] * 6)
-            f.write("r, u, p_a, p_c, p_e, p_v" + os.linesep)
+            fmt_str = ", ".join(["{:.6e}"] * 11) + os.linesep
+            f.write("r, u, p_a, p_c, p_e, p_v, " +
+                    "u_res, p_a_res, p_c_res, p_e_res, p_v_res" +
+                    os.linesep)
             for i in range(self.J):
                 f.write(fmt_str.format(self.r[i],
                                        self.x[i + 0 * self.J],
                                        self.x[i + 1 * self.J],
                                        self.x[i + 2 * self.J],
                                        self.x[i + 3 * self.J],
-                                       self.x[i + 4 * self.J])
-                        + os.linesep)
+                                       self.x[i + 4 * self.J],
+                                       self.residual[i + 0 * self.J],
+                                       self.residual[i + 1 * self.J],
+                                       self.residual[i + 2 * self.J],
+                                       self.residual[i + 3 * self.J],
+                                       self.residual[i + 4 * self.J]))
+
+    def _create_transient_file(self):
+        with open(self.transient_fileName, "w") as f:
+            f.write("T, U, Pa, Pc, Pe, Pv, " +
+                    "U_res, Pa_res, Pc_res, Pe_res, Pv_res" +
+                    os.linesep)
+
+    def _save_transient_file(self):
+        fmt_str = ", ".join(["{:.6e}"] * 11) + os.linesep
+        with open(self.transient_fileName, "a") as f:
+            f.write(fmt_str.format(self.t,
+                                   self.x[0 * self.J],
+                                   self.x[1 * self.J],
+                                   self.x[2 * self.J],
+                                   self.x[3 * self.J],
+                                   self.x[4 * self.J],
+                                   self.residual[0 * self.J],
+                                   self.residual[1 * self.J],
+                                   self.residual[2 * self.J],
+                                   self.residual[3 * self.J],
+                                   self.residual[4 * self.J]))
 
     def solve(self):
+        if self.save_transient:
+            self._create_transient_file()
+
         self._initialise_system()
 
         run_successful = True
         for i in range(self.N):
             self.t = self.t0 + i * self.dt
             self._update_time_dependent_system()
-            self.x = np.linalg.solve(self.A, self.b)
+
+            solver_type = 0
+
+            if solver_type == 0:
+                self.x = np.linalg.solve(self.A, self.b)
+
+            elif solver_type == 1:
+                # Jacobian preconditioner
+                P = np.diag(np.diag(self.A))
+                y = np.linalg.solve(np.dot(self.A, np.linalg.inv(P)), self.b)
+                self.x = np.linalg.solve(P, y)
+
+            elif solver_type == 2:
+                U, s, V = np.linalg.svd(self.A, full_matrices=True)
+                s = np.diag(s)
+                # solving with preconditioning by U from svd
+                self.x = np.linalg.solve(np.dot(s, V), np.dot(np.transpose(U), self.b))
+
+            elif solver_type == 3:
+                import scipy.sparse.linalg as spsl
+                self.x = spsl.spsolve(self.A, self.b)
+
+            elif solver_type == 4:
+                import scipy.sparse.linalg as spsl
+                self.x = spsl.lsqr(self.A, self.b)[0]
+
+            elif solver_type == 5:
+                import scipy.sparse.linalg as spsl
+                # __all__ = ['bicg','bicgstab','cg','cgs','gmres','qmr']
+                M = np.diag(np.diag(self.A))
+                self.x, info = spsl.bicg(self.A, self.b, M=M)
+                # self.x, info = spsl.bicgstab(self.A, self.b, M=M)
+                print info
+
+            else:
+                raise RuntimeError("Invalid solver type")
+
+            self.residual = np.dot(self.A, self.x) - self.b
 
             if self.debug_print:
-                relative_error = np.linalg.norm(np.dot(self.A, self.x) - self.b) / np.linalg.norm(self.b)  # norm() is L2 norm
+                relative_error = np.linalg.norm(self.residual) / np.linalg.norm(self.b)  # norm() is L2 norm
                 print "Current time:", self.t, " sec. The relative error is:", relative_error
+
+            if self.save_transient:
+                self._save_transient_file()
 
             if self.x[0] > 1e5:
                 # simulation is getting too big... cancel solution
                 run_successful = False
                 break
+
         if self.save_wall and run_successful:
             self._save_wall_file()
