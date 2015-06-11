@@ -17,7 +17,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 """
-__use_python_solver = False
+__use_python_solver = True
 if __use_python_solver:
     from mpet.four_compartment import FourCompartmentMPET as MPETSolver
 else:
@@ -76,7 +76,7 @@ def run(setup):
     opts.gamma_ev = 1.0e-13
 
     # aqueduct diameter
-    opts.aqueduct_diameter = 4e-3
+    opts.aqueduct_diameter = 0.25e-3# 4e-3
 
     s = MPETSolver(grid_size, initial_time, num_steps, dt, write_transient,
                    write_wall, debug_print, base_name, opts)
@@ -98,16 +98,16 @@ if __name__ == "__main__":
     import multiprocessing as mp
     fname = "grid_study.dat"
 
-    rerun_simulations = True
+    rerun_simulations = False
     if rerun_simulations:
-        grid_size_list = range(100, 2000 + 1, 100)
-        num_steps_list = range(2, 9)
+        grid_size_list = range(500, 5000 + 1, 200)
+        num_steps_list = range(3, 4)
         setup_list = list()
         for g in grid_size_list:
             for n in num_steps_list:
                 setup_list.append(Setup(g, n))
 
-        pool = mp.Pool(processes=mp.cpu_count())
+        pool = mp.Pool(processes=2)#mp.cpu_count())
         results = np.array(pool.map(run, setup_list))
         np.savetxt(fname, results, delimiter='\t')
     else:
@@ -122,7 +122,10 @@ if __name__ == "__main__":
     num_plots = len(plots)
     fig = plt.figure()
     for plt_idx, plt_title in enumerate(plots):
-        ax = fig.add_subplot(1, num_plots, plt_idx + 1, projection='3d')
+        # ax = fig.add_subplot(1, num_plots, plt_idx + 1, projection='3d')
+        # ax.scatter(results[:, 0], results[:, 1], zs=results[:, plt_idx + 2])
+        ax = fig.add_subplot(1, num_plots, plt_idx + 1)
+        ax.plot(results[:, 0], results[:, plt_idx + 2], 'o')
+        ax.grid()
         ax.set_title(plt_title)
-        ax.scatter(results[:, 0], results[:, 1], zs=results[:, plt_idx + 2])
     plt.show()

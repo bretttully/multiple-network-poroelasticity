@@ -26,7 +26,7 @@ from mpet import profiling
 
 
 def run(run_pure_python=False, run_profiling=False):
-    grid_spacing = 500
+    grid_spacing = 1500
     secs_in_day = 86400.0
     initial_time = 0.0
     num_steps = 3
@@ -137,14 +137,14 @@ if __name__ == "__main__":
     #
     # p = np.genfromtxt("example_python_wall.dat", skiprows=1, delimiter=", ")
     # c = np.genfromtxt("example_cpp_wall.dat", skiprows=1, delimiter=", ")
-    # plots = list()
-    # plots.append("Displacement")
-    # plots.append("Pressure: Art")
-    # plots.append("Pressure: Cap")
-    # plots.append("Pressure: CSF")
-    # plots.append("Pressure: Ven")
-    # num_plots = len(plots)
-    # for plt_idx, title in enumerate(plots):
+    # result_names = list()
+    # result_names.append("Displacement")
+    # result_names.append("Pressure: Art")
+    # result_names.append("Pressure: Cap")
+    # result_names.append("Pressure: CSF")
+    # result_names.append("Pressure: Ven")
+    # num_plots = len(result_names)
+    # for plt_idx, title in enumerate(result_names):
     #     plt.subplot(2, num_plots, plt_idx + 1)
     #     plt.title(title)
     #     plt.plot(p[:, 0], p[:, plt_idx + 1], 'b-', label="Python")
