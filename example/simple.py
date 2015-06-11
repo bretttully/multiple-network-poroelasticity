@@ -114,6 +114,7 @@ def run(run_pure_python=False, run_profiling=False):
                     print err
 
     output1 = list()
+    output1.append(base_name)
     output1.append(opts.alpha_a)
     output1.append(opts.beta_a)
     output1.append(opts.kappa_a)
