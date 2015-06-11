@@ -21,6 +21,32 @@
 #include <boost/python.hpp>
 #include <FourCompartmentPoro.h>
 
+namespace
+{
+/**
+ * Use this function to protect the wrapped objects from having additional
+ * attributes assigned to them in the Python code.
+ *
+ *     .def("__setattr__", &protectSetAttr)
+ *
+ */
+static void protectSetAttr(
+    boost::python::object self,
+    boost::python::str name,
+    boost::python::object value
+    )
+{
+    // if we can get the attribute, then we can set it as this means that
+    // it has been set up by boost::python wrapping. If it hasn't been set
+    // up, then this getattr attempt will throw an AttributeError
+    boost::python::getattr(self, name);
+
+    // now set the attribute using the Python C API. If you were to use
+    // boost::python::setattr here, you would end up in an infinite loop
+    PyObject_GenericSetAttr(self.ptr(), name.ptr(), value.ptr());
+}
+}
+
 // the name of the module must match the filename
 BOOST_PYTHON_MODULE(libpympet) {
     using namespace boost::python;
@@ -52,6 +78,7 @@ BOOST_PYTHON_MODULE(libpympet) {
         // geometric properties
         .def_readwrite("aqueduct_diameter", &mpet::FourCompartmentPoroOptions::aqueductDiameter)
 //        .def_pickle(ns::controllerResultPickleSuite())
+        .def("__setattr__", &protectSetAttr)
         ;
 
     class_<mpet::FourCompartmentPoroResult>("FourCompartmentPoroResult", init<>())
@@ -62,6 +89,7 @@ BOOST_PYTHON_MODULE(libpympet) {
         .def_readwrite("pressure_cap", &mpet::FourCompartmentPoroResult::pressureCap)
         .def_readwrite("pressure_csf", &mpet::FourCompartmentPoroResult::pressureCSF)
         .def_readwrite("pressure_ven", &mpet::FourCompartmentPoroResult::pressureVen)
+        .def("__setattr__", &protectSetAttr)
         ;
 
     class_<mpet::FourCompartmentPoro>("FourCompartmentPoro",
@@ -69,5 +97,6 @@ BOOST_PYTHON_MODULE(libpympet) {
                                            bool, bool, bool, std::string,
                                            const mpet::FourCompartmentPoroOptions&>())
         .def("solve", &mpet::FourCompartmentPoro::solve)
+        .def("__setattr__", &protectSetAttr)
         ;
 }

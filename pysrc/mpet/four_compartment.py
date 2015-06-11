@@ -310,9 +310,9 @@ class FourCompartmentMPET(object):
 
         result = FourCompartmentPoroResult()
         result.displacement = self.x[0 * self.J]
-        result.pressureArt = self.x[1 * self.J]
-        result.pressureCap = self.x[2 * self.J]
-        result.pressureCSF = self.x[3 * self.J]
-        result.pressureVen = self.x[4 * self.J]
+        result.pressure_art = self.x[1 * self.J]
+        result.pressure_cap = self.x[2 * self.J]
+        result.pressure_csf = self.x[3 * self.J]
+        result.pressure_ven = self.x[4 * self.J]
         return result
 
