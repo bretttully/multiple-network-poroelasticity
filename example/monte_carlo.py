@@ -34,7 +34,7 @@ class MonteCarloWorker(object):
 
     def __init__(self, num_simulations=10000, blocked=False):
         self._num_simulations = num_simulations
-        self._grid_size = 15  # from resolution study
+        self._grid_size = 1500  # from resolution study
         self._num_steps = 3  # from resolution study
         secs_in_day = 86400.0
         self._initial_time = 0.0
@@ -175,7 +175,7 @@ def main():
     from mpl_toolkits.mplot3d import Axes3D  # needed to register projection
     import matplotlib.pyplot as plt
 
-    num_simulations = 10
+    num_simulations = int(1e6)
     worker = MonteCarloWorker(num_simulations=num_simulations, blocked=False)
     rerun_simulations = True
     if rerun_simulations:
